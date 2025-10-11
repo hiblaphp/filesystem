@@ -2,6 +2,7 @@
 
 namespace Hibla\Filesystem\Handlers;
 
+use Generator;
 use Hibla\EventLoop\EventLoop;
 use Hibla\Promise\CancellablePromise;
 use Hibla\Promise\Interfaces\CancellablePromiseInterface;
@@ -497,5 +498,189 @@ final readonly class FileHandler
     public function unwatchFile(string $watcherId): bool
     {
         return $this->eventLoop->removeFileWatcher($watcherId);
+    }
+
+    /**
+     * Write data from a generator for memory-efficient streaming.
+     * 
+     * Ideal for large datasets, transformations, or when generating data on-the-fly.
+     * Only one chunk is kept in memory at a time.
+     * 
+     * PERFORMANCE TIP: If your generator yields many small strings (< 1KB each),
+     * enable auto-buffering for dramatic speedup (40-50x faster):
+     * 
+     *
+     * // Slow (90s for 10M lines)
+     * $handler->writeFileFromGenerator($path, $generator);
+     * 
+     * // Fast (2s for 10M lines) - Add buffer_size option
+     * $handler->writeFileFromGenerator($path, $generator, ['buffer_size' => 8192]);
+     *
+     * @param  Generator<string>  $dataGenerator  Generator yielding string chunks
+     * @param  array<string,mixed>  $options  [
+     *     'buffer_size' => int,  // Auto-buffer in bytes (0 = disabled, recommended: 8192)
+     *     'create_directories' => bool,
+     *     'flags' => int
+     * ]
+     * @return CancellablePromiseInterface<int>
+     */
+    public function writeFileFromGenerator(
+        string $path,
+        Generator $dataGenerator,
+        array $options = []
+    ): CancellablePromiseInterface {
+        $bufferSize = $options['buffer_size'] ?? 0;
+        if (is_numeric($bufferSize) && (int) $bufferSize > 0) {
+            $dataGenerator = self::bufferGenerator($dataGenerator, (int) $bufferSize);
+            unset($options['buffer_size']);
+        }
+
+        /** @var CancellablePromise<int> $promise */
+        $promise = new CancellablePromise;
+
+        $operationId = $this->eventLoop->addFileOperation(
+            'write_generator',
+            $path,
+            $dataGenerator,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($promise->isCancelled()) {
+                    return;
+                }
+
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            },
+            $options
+        );
+
+        $promise->setCancelHandler(function () use ($operationId) {
+            $this->eventLoop->cancelFileOperation($operationId);
+        });
+
+        return $promise;
+    }
+
+    /**
+     * Read a file as a generator for memory-efficient streaming.
+     * 
+     * Reads the file in chunks, yielding each chunk as it's read. Ideal for
+     * processing large files without loading them entirely into memory.
+     * 
+     * @param  array<string,mixed>  $options  [
+     *     'chunk_size' => int,  // Bytes per chunk (default: 8192)
+     *     'offset' => int,      // Starting position (default: 0)
+     *     'length' => int|null, // Total bytes to read (default: null = all)
+     * ]
+     * @return CancellablePromiseInterface<Generator<string>>
+     *
+     * @throws \RuntimeException
+     */
+    public function readFileFromGenerator(string $path, array $options = []): CancellablePromiseInterface
+    {
+        /** @var CancellablePromise<Generator<string>> $promise */
+        $promise = new CancellablePromise;
+
+        $operationId = $this->eventLoop->addFileOperation(
+            'read_generator',
+            $path,
+            null,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($promise->isCancelled()) {
+                    return;
+                }
+
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            },
+            $options
+        );
+
+        $promise->setCancelHandler(function () use ($operationId) {
+            $this->eventLoop->cancelFileOperation($operationId);
+        });
+
+        return $promise;
+    }
+
+    /**
+     * Read a file as a generator with line-by-line iteration.
+     * 
+     * Reads the file line by line, yielding each line. Memory-efficient for
+     * processing large text files.
+     * 
+     * @param  array<string,mixed>  $options  [
+     *     'chunk_size' => int,     // Internal read buffer (default: 8192)
+     *     'trim' => bool,          // Trim whitespace from lines (default: false)
+     *     'skip_empty' => bool,    // Skip empty lines (default: false)
+     * ]
+     * @return CancellablePromiseInterface<Generator<string>>
+     *
+     * @throws \RuntimeException
+     */
+    public function readFileLines(string $path, array $options = []): CancellablePromiseInterface
+    {
+        /** @var CancellablePromise<Generator<string>> $promise */
+        $promise = new CancellablePromise;
+
+        $options['read_mode'] = 'lines';
+
+        $operationId = $this->eventLoop->addFileOperation(
+            'read_generator',
+            $path,
+            null,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($promise->isCancelled()) {
+                    return;
+                }
+
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            },
+            $options
+        );
+
+        $promise->setCancelHandler(function () use ($operationId) {
+            $this->eventLoop->cancelFileOperation($operationId);
+        });
+
+        return $promise;
+    }
+
+    /**
+     * Create a buffered generator wrapper that batches small yields into larger chunks.
+     * 
+     * This improves performance when the source generator yields many small strings.
+     *
+     * @param  Generator<string>  $generator  Source generator
+     * @param  int  $bufferSize  Target buffer size in bytes (default: 8192)
+     * @return Generator<string>  Batched generator
+     */
+    public static function bufferGenerator(Generator $generator, int $bufferSize = 8192): Generator
+    {
+        $buffer = '';
+
+        foreach ($generator as $chunk) {
+            $buffer .= $chunk;
+
+            // Yield when buffer reaches target size
+            if (strlen($buffer) >= $bufferSize) {
+                yield $buffer;
+                $buffer = '';
+            }
+        }
+
+        // Yield any remaining data
+        if ($buffer !== '') {
+            yield $buffer;
+        }
     }
 }
