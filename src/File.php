@@ -151,7 +151,7 @@ final class File
      *
      * @throws \RuntimeException If the file doesn't exist or statistics cannot be retrieved
      */
-    public static function stats(string $path): CancellablePromiseInterface
+    public static function getStats(string $path): CancellablePromiseInterface
     {
         return self::getAsyncFileOperations()->getStats($path);
     }

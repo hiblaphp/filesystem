@@ -182,8 +182,9 @@ final readonly class FileHandler
             $options
         );
 
-        $promise->setCancelHandler(function () use ($operationId) {
+        $promise->setCancelHandler(function () use ($operationId, $path) {
             $this->eventLoop->cancelFileOperation($operationId);
+            @unlink($path);
         });
 
         return $promise;
@@ -436,8 +437,9 @@ final readonly class FileHandler
             }
         );
 
-        $promise->setCancelHandler(function () use ($operationId) {
+        $promise->setCancelHandler(function () use ($operationId, $destination) {
             $this->eventLoop->cancelFileOperation($operationId);
+            @unlink($destination);
         });
 
         return $promise;
@@ -556,8 +558,9 @@ final readonly class FileHandler
             $options
         );
 
-        $promise->setCancelHandler(function () use ($operationId) {
+        $promise->setCancelHandler(function () use ($operationId, $path) {
             $this->eventLoop->cancelFileOperation($operationId);
+            @unlink($path);
         });
 
         return $promise;
@@ -664,7 +667,7 @@ final readonly class FileHandler
      * @param  int  $bufferSize  Target buffer size in bytes (default: 8192)
      * @return Generator<string>  Batched generator
      */
-    public static function bufferGenerator(Generator $generator, int $bufferSize = 8192): Generator
+    private static function bufferGenerator(Generator $generator, int $bufferSize = 8192): Generator
     {
         $buffer = '';
 
