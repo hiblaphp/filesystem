@@ -2,42 +2,43 @@
 
 namespace Hibla\Filesystem;
 
+use Generator;
+use Hibla\Filesystem\Handlers\FileHandler;
 use Hibla\Promise\Interfaces\CancellablePromiseInterface;
+use Hibla\Promise\Interfaces\PromiseInterface;
 
 /**
  * Static API for asynchronous file and directory operations.
+ * 
+ * This class provides a convenient facade for async file operations with two types of promises:
+ * - PromiseInterface: For fast, atomic operations that cannot be cancelled
+ * - CancellablePromiseInterface: For streaming operations that support mid-flight cancellation
  */
 final class File
 {
     /**
-     * @var AsyncFileOperations|null Cached singleton instance of the async operations handler
+     * @var FileHandler|null Cached singleton instance of the async operations handler
      */
-    private static ?AsyncFileOperations $asyncOps = null;
+    private static ?FileHandler $asyncOps = null;
 
     /**
-     * Get the singleton instance of AsyncFileOperations with lazy initialization.
+     * Get the singleton instance of FileHandler with lazy initialization.
      *
-     * This method implements the singleton pattern to ensure only one instance
-     * of AsyncFileOperations exists throughout the application lifecycle, which
-     * improves performance and maintains consistent state for file operations.
-     *
-     * @return AsyncFileOperations The shared async file operations handler instance
+     * @return FileHandler The shared async file operations handler instance
      */
-    protected static function getAsyncFileOperations(): AsyncFileOperations
+    protected static function getAsyncFileOperations(): FileHandler
     {
         if (self::$asyncOps === null) {
-            self::$asyncOps = new AsyncFileOperations;
+            self::$asyncOps = new FileHandler();
         }
 
         return self::$asyncOps;
     }
 
     /**
-     * Reset the cached AsyncFileOperations instance to its initial state.
-     *
-     * This method is primarily intended for testing purposes to ensure a clean
-     * state between test runs. It clears the singleton instance, forcing a new
-     * one to be created on the next method call.
+     * Reset the cached FileHandler instance.
+     * 
+     * Primarily for testing purposes to ensure clean state between test runs.
      */
     public static function reset(): void
     {
@@ -46,324 +47,333 @@ final class File
 
     /**
      * Asynchronously read the entire contents of a file.
-     *
-     * This method reads a file completely into memory and returns the contents
-     * as a string. For large files that might consume significant memory,
-     * consider using readFileStream() instead for better memory efficiency.
+     * 
+     * NON-CANCELLABLE: Operation completes atomically.
+     * For large files, consider using readStream() or readFromGenerator() for better memory efficiency.
      *
      * @param  string  $path  The path to the file to read
-     * @param  array<string, mixed>  $options  Optional configuration options:
-     *                                         - 'encoding' => string: Character encoding (default: 'utf-8')
-     *                                         - 'offset' => int: Starting position to read from (bytes)
-     *                                         - 'length' => int: Maximum number of bytes to read
-     *                                         - 'flags' => int: File operation flags for advanced control
-     * @return CancellablePromiseInterface<string> Promise that resolves with the complete file contents as a string
+     * @param  array<string, mixed>  $options  Optional configuration:
+     *                                         - 'offset' => int: Starting position (default: 0)
+     *                                         - 'length' => int|null: Max bytes to read (default: null = all)
+     * @return PromiseInterface<string> Promise resolving to complete file contents
      *
-     * @throws \RuntimeException If the file cannot be read, doesn't exist, or access is denied
+     * @throws \RuntimeException If file cannot be read or doesn't exist
      */
-    public static function read(string $path, array $options = []): CancellablePromiseInterface
+    public static function read(string $path, array $options = []): PromiseInterface
     {
-        return self::getAsyncFileOperations()->read($path, $options);
+        return self::getAsyncFileOperations()->readFile($path, $options);
+    }
+
+    /**
+     * Asynchronously read a file using streaming (cancellable).
+     * 
+     * CANCELLABLE: Can be cancelled mid-operation.
+     * Use when: User control, timeouts, or conditional reading needed.
+     * Still loads full file into memory but can be stopped early.
+     *
+     * @param  string  $path  The path to the file to read
+     * @param  array<string, mixed>  $options  Optional configuration:
+     *                                         - 'offset' => int: Starting position
+     *                                         - 'length' => int|null: Max bytes to read
+     * @return CancellablePromiseInterface<string> Promise resolving to file contents (cancellable)
+     *
+     * @throws \RuntimeException If file cannot be opened or read
+     */
+    public static function readStream(string $path, array $options = []): CancellablePromiseInterface
+    {
+        return self::getAsyncFileOperations()->readFileStream($path, $options);
+    }
+
+    /**
+     * Read a file as a generator for memory-efficient streaming.
+     * 
+     * CANCELLABLE: Can be cancelled mid-operation.
+     * MEMORY EFFICIENT: Only one chunk in memory at a time.
+     * 
+     * Ideal for processing large files without loading entirely into memory.
+     *
+     * @param  string  $path  The path to the file
+     * @param  array<string, mixed>  $options  Optional configuration:
+     *                                         - 'chunk_size' => int: Bytes per chunk (default: 8192)
+     *                                         - 'offset' => int: Starting position (default: 0)
+     *                                         - 'length' => int|null: Total bytes to read (default: null = all)
+     * @return CancellablePromiseInterface<Generator<string>> Promise resolving to generator yielding chunks
+     *
+     * @throws \RuntimeException If file cannot be read
+     */
+    public static function readFromGenerator(string $path, array $options = []): CancellablePromiseInterface
+    {
+        return self::getAsyncFileOperations()->readFileFromGenerator($path, $options);
+    }
+
+    /**
+     * Read a file line-by-line as a generator.
+     * 
+     * CANCELLABLE: Can be cancelled mid-operation.
+     * MEMORY EFFICIENT: Only current line in memory.
+     * 
+     * Perfect for processing large text files, logs, or CSV files.
+     *
+     * @param  string  $path  The path to the file
+     * @param  array<string, mixed>  $options  Optional configuration:
+     *                                         - 'chunk_size' => int: Internal buffer size (default: 8192)
+     *                                         - 'trim' => bool: Trim whitespace from lines (default: false)
+     *                                         - 'skip_empty' => bool: Skip empty lines (default: false)
+     * @return CancellablePromiseInterface<Generator<string>> Promise resolving to generator yielding lines
+     *
+     * @throws \RuntimeException If file cannot be read
+     */
+    public static function readLines(string $path, array $options = []): CancellablePromiseInterface
+    {
+        return self::getAsyncFileOperations()->readFileLines($path, $options);
     }
 
     /**
      * Asynchronously write data to a file.
-     *
-     * This method writes the provided data to a file, creating the file if it
-     * doesn't exist or completely overwriting it if it does exist. For large
-     * amounts of data or when memory efficiency is important, consider using
-     * writeFileStream() instead.
+     * 
+     * NON-CANCELLABLE: Operation completes atomically.
+     * For large data or when cancellation needed, use writeStream() or writeFromGenerator().
      *
      * @param  string  $path  The path where the file should be written
-     * @param  string  $data  The data to write to the file
-     * @param  array<string, mixed>  $options  Optional configuration options:
-     *                                         - 'mode' => string: File write mode (default: 'w' for overwrite)
-     *                                         - 'permissions' => int: File permissions in octal format (e.g., 0644)
-     *                                         - 'create_dirs' => bool: Create parent directories if they don't exist
-     *                                         - 'lock' => bool: Use file locking during write operation
-     *                                         - 'atomic' => bool: Write to temporary file first, then rename (safer)
-     * @return CancellablePromiseInterface<int> Promise that resolves with the number of bytes successfully written
+     * @param  string  $data  The data to write
+     * @param  array<string, mixed>  $options  Optional configuration:
+     *                                         - 'create_directories' => bool: Create parent dirs (default: false)
+     *                                         - 'flags' => int: File operation flags
+     * @return PromiseInterface<int> Promise resolving to number of bytes written
      *
-     * @throws \RuntimeException If the file cannot be written, directory cannot be created, or insufficient permissions
+     * @throws \RuntimeException If file cannot be written
      */
-    public static function write(string $path, string $data, array $options = []): CancellablePromiseInterface
+    public static function write(string $path, string $data, array $options = []): PromiseInterface
     {
-        return self::getAsyncFileOperations()->write($path, $data, $options);
+        return self::getAsyncFileOperations()->writeFile($path, $data, $options);
     }
 
     /**
-     * Asynchronously append data to the end of a file.
+     * Asynchronously write data using streaming (cancellable).
+     * 
+     * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
+     * Use when: User control, timeouts, or conditional writing needed.
      *
-     * This method adds the provided data to the end of an existing file without
-     * modifying the existing content. If the file doesn't exist, it will be created.
-     * This is particularly useful for logging, incremental data writing, or building
-     * files progressively.
+     * @param  string  $path  The path where the file should be written
+     * @param  string  $data  The data to write
+     * @param  array<string, mixed>  $options  Optional configuration:
+     *                                         - 'create_directories' => bool: Create parent dirs
+     *                                         - 'flags' => int: File operation flags
+     * @return CancellablePromiseInterface<int> Promise resolving to bytes written (cancellable)
      *
-     * @param  string  $path  The path to the file to append data to
-     * @param  string  $data  The data to append to the end of the file
-     * @return CancellablePromiseInterface<int> Promise that resolves with the number of bytes successfully appended
-     *
-     * @throws \RuntimeException If the file cannot be opened for appending or the append operation fails
+     * @throws \RuntimeException If file cannot be written
      */
-    public static function append(string $path, string $data): CancellablePromiseInterface
+    public static function writeStream(string $path, string $data, array $options = []): CancellablePromiseInterface
     {
-        return self::getAsyncFileOperations()->append($path, $data);
+        return self::getAsyncFileOperations()->writeFileStream($path, $data, $options);
+    }
+
+    /**
+     * Write data from a generator for memory-efficient streaming.
+     * 
+     * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
+     * MEMORY EFFICIENT: Only one chunk in memory at a time.
+     * 
+     * Perfect for large datasets, transformations, or generating data on-the-fly.
+     * 
+     * PERFORMANCE TIP: Enable auto-buffering for dramatic speedup with small chunks:
+     * File::writeFromGenerator($path, $generator, ['buffer_size' => 8192]);
+     *
+     * @param  string  $path  The path where the file should be written
+     * @param  Generator<string>  $dataGenerator  Generator yielding string chunks
+     * @param  array<string, mixed>  $options  Optional configuration:
+     *                                         - 'buffer_size' => int: Auto-buffer size (0=disabled, recommended: 8192)
+     *                                         - 'create_directories' => bool: Create parent dirs
+     *                                         - 'flags' => int: File operation flags
+     * @return CancellablePromiseInterface<int> Promise resolving to bytes written (cancellable)
+     *
+     * @throws \RuntimeException If file cannot be written
+     */
+    public static function writeFromGenerator(string $path, Generator $dataGenerator, array $options = []): CancellablePromiseInterface
+    {
+        return self::getAsyncFileOperations()->writeFileFromGenerator($path, $dataGenerator, $options);
+    }
+
+    /**
+     * Asynchronously append data to a file.
+     * 
+     * NON-CANCELLABLE: Operation completes atomically.
+     * Creates file if it doesn't exist. Useful for logging or incremental writing.
+     *
+     * @param  string  $path  The path to the file
+     * @param  string  $data  The data to append
+     * @return PromiseInterface<int> Promise resolving to number of bytes appended
+     *
+     * @throws \RuntimeException If file cannot be opened for appending
+     */
+    public static function append(string $path, string $data): PromiseInterface
+    {
+        return self::getAsyncFileOperations()->appendFile($path, $data);
     }
 
     /**
      * Asynchronously check if a file or directory exists.
+     * 
+     * NON-CANCELLABLE: Quick check, completes instantly.
      *
-     * This method performs a non-blocking check to determine whether the specified
-     * path exists in the filesystem. It works for both files and directories and
-     * doesn't require read permissions on the target, making it safe for checking
-     * existence without triggering access-related errors.
+     * @param  string  $path  The filesystem path to check
+     * @return PromiseInterface<bool> Promise resolving to true if path exists
      *
-     * @param  string  $path  The filesystem path to check for existence
-     * @return CancellablePromiseInterface<bool> Promise that resolves with true if the path exists, false otherwise
-     *
-     * @throws \RuntimeException If the existence check fails due to system errors or invalid path format
+     * @throws \RuntimeException If check fails due to system errors
      */
-    public static function exists(string $path): CancellablePromiseInterface
+    public static function exists(string $path): PromiseInterface
     {
-        return self::getAsyncFileOperations()->exists($path);
+        return self::getAsyncFileOperations()->fileExists($path);
     }
 
     /**
-     * Asynchronously retrieve detailed file statistics and metadata.
+     * Asynchronously retrieve file statistics and metadata.
+     * 
+     * NON-CANCELLABLE: Quick operation, completes instantly.
      *
-     * This method returns comprehensive information about a file or directory,
-     * including size, timestamps, permissions, and type information. The returned
-     * data is similar to PHP's built-in stat() function but obtained asynchronously
-     * without blocking the event loop.
+     * @param  string  $path  The path to get statistics for
+     * @return PromiseInterface<array<string, mixed>> Promise resolving to file stats array
      *
-     * @param  string  $path  The path to get statistics and metadata for
-     * @return CancellablePromiseInterface<array<string, mixed>> Promise that resolves with detailed file information:
-     *                                                           - 'size' => int: File size in bytes
-     *                                                           - 'mtime' => int: Last modification time as Unix timestamp
-     *                                                           - 'atime' => int: Last access time as Unix timestamp
-     *                                                           - 'ctime' => int: Creation/change time as Unix timestamp
-     *                                                           - 'mode' => int: File permissions and type information
-     *                                                           - 'is_file' => bool: Whether the path is a regular file
-     *                                                           - 'is_dir' => bool: Whether the path is a directory
-     *                                                           - 'is_readable' => bool: Whether the current process can read the file
-     *                                                           - 'is_writable' => bool: Whether the current process can write to the file
-     *                                                           - 'is_executable' => bool: Whether the file is executable
-     *
-     * @throws \RuntimeException If the file doesn't exist or statistics cannot be retrieved
+     * @throws \RuntimeException If file doesn't exist or stats cannot be retrieved
      */
-    public static function getStats(string $path): CancellablePromiseInterface
+    public static function getStats(string $path): PromiseInterface
     {
-        return self::getAsyncFileOperations()->getStats($path);
+        return self::getAsyncFileOperations()->getFileStats($path);
     }
 
     /**
-     * Asynchronously delete a file from the filesystem.
+     * Asynchronously delete a file.
+     * 
+     * NON-CANCELLABLE: Operation completes atomically.
+     * Use with caution - cannot be undone.
      *
-     * This method permanently removes the specified file from the filesystem.
-     * The operation will fail if the target is a directory, the file is currently
-     * in use, or insufficient permissions exist. Use with caution as this operation
-     * cannot be undone without backup systems in place.
+     * @param  string  $path  The path to the file to delete
+     * @return PromiseInterface<bool> Promise resolving to true on successful deletion
      *
-     * @param  string  $path  The path to the file to permanently delete
-     * @return CancellablePromiseInterface<bool> Promise that resolves with true on successful deletion
-     *
-     * @throws \RuntimeException If the file doesn't exist, is a directory, is in use, or cannot be deleted
+     * @throws \RuntimeException If file doesn't exist or cannot be deleted
      */
-    public static function delete(string $path): CancellablePromiseInterface
+    public static function delete(string $path): PromiseInterface
     {
-        return self::getAsyncFileOperations()->delete($path);
+        return self::getAsyncFileOperations()->deleteFile($path);
     }
 
     /**
-     * Asynchronously copy a file from source to destination.
+     * Asynchronously copy a file.
+     * 
+     * NON-CANCELLABLE: Operation completes atomically.
+     * For large files with cancellation support, use copyStream().
      *
-     * This method creates a complete copy of a file at a new location. If the
-     * destination file already exists, it will be overwritten. Parent directories
-     * of the destination path will be created automatically if they don't exist.
-     * The original file remains unchanged after the copy operation.
+     * @param  string  $source  The source file path
+     * @param  string  $destination  The destination file path
+     * @return PromiseInterface<bool> Promise resolving to true on successful copy
      *
-     * @param  string  $source  The path to the source file to copy
-     * @param  string  $destination  The path where the copy should be created
-     * @return CancellablePromiseInterface<bool> Promise that resolves with true on successful file copy
-     *
-     * @throws \RuntimeException If the source file doesn't exist, destination cannot be written, or copy operation fails
+     * @throws \RuntimeException If source doesn't exist or destination cannot be written
      */
-    public static function copy(string $source, string $destination): CancellablePromiseInterface
+    public static function copy(string $source, string $destination): PromiseInterface
     {
-        return self::getAsyncFileOperations()->copy($source, $destination);
+        return self::getAsyncFileOperations()->copyFile($source, $destination);
+    }
+
+    /**
+     * Asynchronously copy a file using streaming (cancellable).
+     * 
+     * CANCELLABLE: Can be cancelled mid-operation, partial destination will be deleted.
+     * Memory efficient for large files.
+     *
+     * @param  string  $source  The source file path
+     * @param  string  $destination  The destination file path
+     * @return CancellablePromiseInterface<bool> Promise resolving to true on successful copy (cancellable)
+     *
+     * @throws \RuntimeException If source doesn't exist or copy fails
+     */
+    public static function copyStream(string $source, string $destination): CancellablePromiseInterface
+    {
+        return self::getAsyncFileOperations()->copyFileStream($source, $destination);
     }
 
     /**
      * Asynchronously rename or move a file.
+     * 
+     * NON-CANCELLABLE: Operation completes atomically.
+     * Can rename within directory or move to different location.
      *
-     * This method changes the name or location of a file by moving it from the
-     * old path to the new path. This operation can rename files within the same
-     * directory or move them to entirely different locations. If a file exists
-     * at the new path, it will be overwritten without warning.
+     * @param  string  $oldPath  The current file path
+     * @param  string  $newPath  The new file path
+     * @return PromiseInterface<bool> Promise resolving to true on successful rename/move
      *
-     * @param  string  $oldPath  The current path of the file to rename or move
-     * @param  string  $newPath  The new path where the file should be moved to
-     * @return CancellablePromiseInterface<bool> Promise that resolves with true on successful rename/move operation
-     *
-     * @throws \RuntimeException If the source file doesn't exist, destination directory doesn't exist, or insufficient permissions
+     * @throws \RuntimeException If source doesn't exist or destination cannot be written
      */
-    public static function rename(string $oldPath, string $newPath): CancellablePromiseInterface
+    public static function rename(string $oldPath, string $newPath): PromiseInterface
     {
-        return self::getAsyncFileOperations()->rename($oldPath, $newPath);
-    }
-
-    /**
-     * Start watching a file or directory for changes.
-     *
-     * This method establishes a filesystem watcher that monitors the specified
-     * path for changes and executes a callback function when changes occur. The
-     * watcher operates asynchronously and doesn't block execution. Multiple
-     * watchers can be active simultaneously for different paths or even the same path.
-     *
-     * @param  string  $path  The filesystem path to monitor for changes
-     * @param  callable  $callback  Function to execute when changes are detected:
-     *                              function(string $path, string $event, mixed $data): void
-     *                              - $path: The path where the change occurred
-     *                              - $event: Type of change ('modified', 'deleted', 'created', 'moved', 'attributes')
-     *                              - $data: Additional event-specific data (file size, timestamps, etc.)
-     * @param  array<string, mixed>  $options  Optional configuration options:
-     *                                         - 'recursive' => bool: Monitor subdirectories recursively (default: false)
-     *                                         - 'events' => array<string>: Specific events to watch (['modify', 'delete', 'create', 'move'])
-     *                                         - 'debounce' => float: Minimum time between notifications for the same file (seconds)
-     *                                         - 'include_patterns' => array<string>: File patterns to include (glob patterns)
-     *                                         - 'exclude_patterns' => array<string>: File patterns to exclude (glob patterns)
-     * @return string Unique watcher identifier that can be used to stop monitoring with unwatch()
-     *
-     * @throws \RuntimeException If the path doesn't exist or file watcher cannot be established
-     */
-    public static function watch(string $path, callable $callback, array $options = []): string
-    {
-        return self::getAsyncFileOperations()->watch($path, $callback, $options);
-    }
-
-    /**
-     * Stop watching a file or directory for changes.
-     *
-     * This method removes a previously established file system watcher using its
-     * unique identifier. Once removed, the associated callback function will no
-     * longer be executed when changes occur to the monitored path. This is important
-     * for preventing memory leaks when watchers are no longer needed.
-     *
-     * @param  string  $watcherId  The unique watcher identifier returned by watch()
-     * @return bool True if the watcher was successfully removed, false if the watcher ID was not found
-     */
-    public static function unwatch(string $watcherId): bool
-    {
-        return self::getAsyncFileOperations()->unwatch($watcherId);
+        return self::getAsyncFileOperations()->renameFile($oldPath, $newPath);
     }
 
     /**
      * Asynchronously create a directory.
+     * 
+     * NON-CANCELLABLE: Operation completes atomically.
      *
-     * This method creates a new directory at the specified path with optional
-     * configuration for permissions and recursive creation. If parent directories
-     * don't exist, they can be automatically created when the recursive option
-     * is enabled, making it easy to create deep directory structures in one operation.
+     * @param  string  $path  The directory path to create
+     * @param  array<string, mixed>  $options  Optional configuration:
+     *                                         - 'mode' => int: Directory permissions (default: 0755)
+     *                                         - 'recursive' => bool: Create parent dirs (default: false)
+     * @return PromiseInterface<bool> Promise resolving to true on successful creation
      *
-     * @param  string  $path  The path where the directory should be created
-     * @param  array<string, mixed>  $options  Optional configuration options:
-     *                                         - 'mode' => int: Directory permissions in octal format (default: 0755)
-     *                                         - 'recursive' => bool: Create parent directories if they don't exist (default: false)
-     *                                         - 'context' => resource: Stream context for advanced directory creation options
-     * @return CancellablePromiseInterface<bool> Promise that resolves with true on successful directory creation
-     *
-     * @throws \RuntimeException If the directory already exists, parent directories don't exist (when not recursive), or insufficient permissions
+     * @throws \RuntimeException If directory already exists or cannot be created
      */
-    public static function createDirectory(string $path, array $options = []): CancellablePromiseInterface
+    public static function createDirectory(string $path, array $options = []): PromiseInterface
     {
         return self::getAsyncFileOperations()->createDirectory($path, $options);
     }
 
     /**
-     * Asynchronously remove an empty directory.
+     * Asynchronously remove a directory.
+     * 
+     * NON-CANCELLABLE: Operation completes atomically.
+     * Can remove non-empty directories recursively.
      *
-     * This method removes a directory from the filesystem. The directory must be
-     * completely empty (no files or subdirectories) before it can be removed.
-     * For recursive directory removal, all contents must be deleted first using
-     * other file and directory operations.
+     * @param  string  $path  The directory path to remove
+     * @return PromiseInterface<bool> Promise resolving to true on successful removal
      *
-     * @param  string  $path  The path to the directory to remove
-     * @return CancellablePromiseInterface<bool> Promise that resolves with true on successful directory removal
-     *
-     * @throws \RuntimeException If the directory doesn't exist, is not empty, or cannot be removed due to permissions
+     * @throws \RuntimeException If directory doesn't exist or cannot be removed
      */
-    public static function removeDirectory(string $path): CancellablePromiseInterface
+    public static function removeDirectory(string $path): PromiseInterface
     {
         return self::getAsyncFileOperations()->removeDirectory($path);
     }
 
     /**
-     * Asynchronously open a file for streaming read operations.
+     * Start watching a file or directory for changes.
+     * 
+     * Monitors path asynchronously and executes callback when changes occur.
+     * Multiple watchers can be active simultaneously.
      *
-     * This method returns a file stream resource that can be used for reading
-     * large files efficiently without loading the entire content into memory.
-     * This is particularly useful for processing large files, log files, or
-     * when memory usage needs to be controlled. Remember to properly close
-     * the stream resource when finished to prevent resource leaks.
+     * @param  string  $path  The filesystem path to monitor
+     * @param  callable  $callback  Function to execute on changes:
+     *                              function(string $event, string $path): void
+     *                              - $event: 'modified', 'deleted', 'created', etc.
+     *                              - $path: The path where change occurred
+     * @param  array<string, mixed>  $options  Optional configuration:
+     *                                         - 'interval' => int: Polling interval in milliseconds (default: 1000)
+     * @return string Unique watcher ID for use with unwatch()
      *
-     * @param  string  $path  The path to the file to open for streaming reads
-     * @param  array<string, mixed>  $options  Optional configuration options:
-     *                                         - 'mode' => string: File open mode (default: 'r' for read-only)
-     *                                         - 'buffer_size' => int: Size of the read buffer in bytes (default: 8192)
-     *                                         - 'context' => resource: Stream context for advanced stream options
-     *                                         - 'use_include_path' => bool: Search in include_path for the file
-     * @return CancellablePromiseInterface<resource> Promise that resolves with a file stream resource handle
-     *
-     * @throws \RuntimeException If the file cannot be opened, doesn't exist, or access is denied
+     * @throws \RuntimeException If path doesn't exist or watcher cannot be established
      */
-    public static function readStream(string $path, array $options = []): CancellablePromiseInterface
+    public static function watch(string $path, callable $callback, array $options = []): string
     {
-        return self::getAsyncFileOperations()->readStream($path, $options);
+        return self::getAsyncFileOperations()->watchFile($path, $callback, $options);
     }
 
     /**
-     * Asynchronously write data to a file using streaming operations.
+     * Stop watching a file or directory.
+     * 
+     * Removes watcher by its unique ID. Important for preventing memory leaks.
      *
-     * This method writes data to a file using streaming I/O, which is more
-     * memory efficient for large amounts of data. The streaming approach processes
-     * data in chunks rather than loading everything into memory at once, making
-     * it suitable for handling very large datasets. The target file will be
-     * created if it doesn't exist or truncated if it does.
-     *
-     * @param  string  $path  The path where the file should be written
-     * @param  string  $data  The data to write to the file using streaming
-     * @param  array<string, mixed>  $options  Optional configuration options:
-     *                                         - 'mode' => string: File write mode (default: 'w' for write/truncate)
-     *                                         - 'buffer_size' => int: Size of the write buffer in bytes (default: 8192)
-     *                                         - 'create_dirs' => bool: Create parent directories if they don't exist
-     *                                         - 'context' => resource: Stream context for advanced stream options
-     *                                         - 'chunk_size' => int: Size of data chunks to process at once
-     * @return CancellablePromiseInterface<int> Promise that resolves with the total number of bytes written
-     *
-     * @throws \RuntimeException If the file cannot be written, directory cannot be created, or streaming fails
+     * @param  string  $watcherId  The watcher ID returned by watch()
+     * @return bool True if watcher was removed, false if ID not found
      */
-    public static function writeStream(string $path, string $data, array $options = []): CancellablePromiseInterface
+    public static function unwatch(string $watcherId): bool
     {
-        return self::getAsyncFileOperations()->writeStream($path, $data, $options);
-    }
-
-    /**
-     * Asynchronously copy a file using streaming operations for memory efficiency.
-     *
-     * This method copies a file from source to destination using streaming I/O
-     * to handle large files efficiently without consuming excessive memory. The
-     * file is copied in chunks, making it suitable for very large files that
-     * wouldn't fit comfortably in memory. Parent directories will be created
-     * automatically if needed for the destination path.
-     *
-     * @param  string  $source  The path to the source file to copy
-     * @param  string  $destination  The path where the file copy should be created
-     * @return CancellablePromiseInterface<bool> Promise that resolves with true on successful streaming copy
-     *
-     * @throws \RuntimeException If the source file doesn't exist, destination cannot be written, or streaming copy fails
-     */
-    public static function copyStream(string $source, string $destination): CancellablePromiseInterface
-    {
-        return self::getAsyncFileOperations()->copyStream($source, $destination);
+        return self::getAsyncFileOperations()->unwatchFile($watcherId);
     }
 }

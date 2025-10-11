@@ -4,11 +4,13 @@ namespace Hibla\Filesystem\Handlers;
 
 use Generator;
 use Hibla\EventLoop\EventLoop;
+use Hibla\Promise\Promise;
 use Hibla\Promise\CancellablePromise;
+use Hibla\Promise\Interfaces\PromiseInterface;
 use Hibla\Promise\Interfaces\CancellablePromiseInterface;
 
 /**
- * Async file operations (non-blocking, cancellable).
+ * Async file operations (non-blocking, with selective cancellation support).
  */
 final readonly class FileHandler
 {
@@ -24,26 +26,24 @@ final readonly class FileHandler
 
     /**
      * Read a file into memory asynchronously.
+     * 
+     * Non-cancellable: Operation completes atomically.
      *
      * @param  array<string,mixed>  $options
-     * @return CancellablePromiseInterface<string>
+     * @return PromiseInterface<string>
      *
      * @throws \RuntimeException
      */
-    public function readFile(string $path, array $options = []): CancellablePromiseInterface
+    public function readFile(string $path, array $options = []): PromiseInterface
     {
-        /** @var CancellablePromise<string> $promise */
-        $promise = new CancellablePromise;
+        /** @var Promise<string> $promise */
+        $promise = new Promise;
 
-        $operationId = $this->eventLoop->addFileOperation(
+        $this->eventLoop->addFileOperation(
             'read',
             $path,
             null,
             function (?string $error, mixed $result = null) use ($promise) {
-                if ($promise->isCancelled()) {
-                    return;
-                }
-
                 if ($error !== null) {
                     $promise->reject(new \RuntimeException($error));
                 } else {
@@ -52,25 +52,24 @@ final readonly class FileHandler
             },
             $options
         );
-
-        $promise->setCancelHandler(function () use ($operationId) {
-            $this->eventLoop->cancelFileOperation($operationId);
-        });
 
         return $promise;
     }
 
     /**
      * Open a file for streaming reads asynchronously.
+     * 
+     * CANCELLABLE: Can be cancelled mid-operation.
+     * Use when: User control, timeouts, or conditional reading needed.
      *
      * @param  array<string,mixed>  $options
-     * @return CancellablePromiseInterface<resource>
+     * @return CancellablePromiseInterface<string>
      *
      * @throws \RuntimeException
      */
     public function readFileStream(string $path, array $options = []): CancellablePromiseInterface
     {
-        /** @var CancellablePromise<resource> $promise */
+        /** @var CancellablePromise<string> $promise */
         $promise = new CancellablePromise;
         $options['use_streaming'] = true;
 
@@ -90,58 +89,6 @@ final readonly class FileHandler
                 }
             },
             $options
-        );
-
-        $promise->setCancelHandler(function () use ($operationId) {
-            $this->eventLoop->cancelFileOperation($operationId);
-        });
-
-        return $promise;
-    }
-
-    /**
-     * Write data to a file using streaming mode (delegates to writeFile).
-     *
-     * @param  array<string,mixed>  $options
-     * @return CancellablePromiseInterface<int>
-     *
-     * @throws \RuntimeException
-     */
-    public function writeFileStream(string $path, string $data, array $options = []): CancellablePromiseInterface
-    {
-        $options['use_streaming'] = true;
-
-        return $this->writeFile($path, $data, $options);
-    }
-
-    /**
-     * Copy a file using streaming operations asynchronously.
-     *
-     * @return CancellablePromiseInterface<bool>
-     *
-     * @throws \RuntimeException
-     */
-    public function copyFileStream(string $source, string $destination): CancellablePromiseInterface
-    {
-        /** @var CancellablePromise<bool> $promise */
-        $promise = new CancellablePromise;
-
-        $operationId = $this->eventLoop->addFileOperation(
-            'copy',
-            $source,
-            $destination,
-            function (?string $error, mixed $result = null) use ($promise) {
-                if ($promise->isCancelled()) {
-                    return;
-                }
-
-                if ($error !== null) {
-                    $promise->reject(new \RuntimeException($error));
-                } else {
-                    $promise->resolve($result);
-                }
-            },
-            ['use_streaming' => true]
         );
 
         $promise->setCancelHandler(function () use ($operationId) {
@@ -153,16 +100,52 @@ final readonly class FileHandler
 
     /**
      * Write data to a file asynchronously.
+     * 
+     * Non-cancellable: Operation completes atomically.
+     *
+     * @param  array<string,mixed>  $options
+     * @return PromiseInterface<int>
+     *
+     * @throws \RuntimeException
+     */
+    public function writeFile(string $path, string $data, array $options = []): PromiseInterface
+    {
+        /** @var Promise<int> $promise */
+        $promise = new Promise;
+
+        $this->eventLoop->addFileOperation(
+            'write',
+            $path,
+            $data,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            },
+            $options
+        );
+
+        return $promise;
+    }
+
+    /**
+     * Write data to a file using streaming mode.
+     * 
+     * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
+     * Use when: User control, timeouts, or conditional writing needed.
      *
      * @param  array<string,mixed>  $options
      * @return CancellablePromiseInterface<int>
      *
      * @throws \RuntimeException
      */
-    public function writeFile(string $path, string $data, array $options = []): CancellablePromiseInterface
+    public function writeFileStream(string $path, string $data, array $options = []): CancellablePromiseInterface
     {
         /** @var CancellablePromise<int> $promise */
         $promise = new CancellablePromise;
+        $options['use_streaming'] = true;
 
         $operationId = $this->eventLoop->addFileOperation(
             'write',
@@ -191,231 +174,15 @@ final readonly class FileHandler
     }
 
     /**
-     * Append data to a file asynchronously.
-     *
-     * @return CancellablePromiseInterface<int>
-     *
-     * @throws \RuntimeException
-     */
-    public function appendFile(string $path, string $data): CancellablePromiseInterface
-    {
-        /** @var CancellablePromise<int> $promise */
-        $promise = new CancellablePromise;
-
-        $operationId = $this->eventLoop->addFileOperation(
-            'append',
-            $path,
-            $data,
-            function (?string $error, mixed $result = null) use ($promise) {
-                if ($promise->isCancelled()) {
-                    return;
-                }
-
-                if ($error !== null) {
-                    $promise->reject(new \RuntimeException($error));
-                } else {
-                    $promise->resolve($result);
-                }
-            }
-        );
-
-        $promise->setCancelHandler(function () use ($operationId) {
-            $this->eventLoop->cancelFileOperation($operationId);
-        });
-
-        return $promise;
-    }
-
-    /**
-     * Delete a file asynchronously.
+     * Copy a file using streaming operations asynchronously.
+     * 
+     * CANCELLABLE: Can be cancelled mid-operation, partial destination will be deleted.
      *
      * @return CancellablePromiseInterface<bool>
      *
      * @throws \RuntimeException
      */
-    public function deleteFile(string $path): CancellablePromiseInterface
-    {
-        /** @var CancellablePromise<bool> $promise */
-        $promise = new CancellablePromise;
-
-        $operationId = $this->eventLoop->addFileOperation(
-            'delete',
-            $path,
-            null,
-            function (?string $error, mixed $result = null) use ($promise) {
-                if ($promise->isCancelled()) {
-                    return;
-                }
-
-                if ($error !== null) {
-                    $promise->reject(new \RuntimeException($error));
-                } else {
-                    $promise->resolve($result);
-                }
-            }
-        );
-
-        $promise->setCancelHandler(function () use ($operationId) {
-            $this->eventLoop->cancelFileOperation($operationId);
-        });
-
-        return $promise;
-    }
-
-    /**
-     * Check existence of a path asynchronously.
-     *
-     * @return CancellablePromiseInterface<bool>
-     *
-     * @throws \RuntimeException
-     */
-    public function fileExists(string $path): CancellablePromiseInterface
-    {
-        /** @var CancellablePromise<bool> $promise */
-        $promise = new CancellablePromise;
-
-        $operationId = $this->eventLoop->addFileOperation(
-            'exists',
-            $path,
-            null,
-            function (?string $error, mixed $result = null) use ($promise) {
-                if ($promise->isCancelled()) {
-                    return;
-                }
-
-                if ($error !== null) {
-                    $promise->reject(new \RuntimeException($error));
-                } else {
-                    $promise->resolve($result);
-                }
-            }
-        );
-
-        $promise->setCancelHandler(function () use ($operationId) {
-            $this->eventLoop->cancelFileOperation($operationId);
-        });
-
-        return $promise;
-    }
-
-    /**
-     * Get file stats asynchronously.
-     *
-     * @return CancellablePromiseInterface<array<string,mixed>>
-     *
-     * @throws \RuntimeException
-     */
-    public function getFileStats(string $path): CancellablePromiseInterface
-    {
-        /** @var CancellablePromise<array<string,mixed>> $promise */
-        $promise = new CancellablePromise;
-
-        $operationId = $this->eventLoop->addFileOperation(
-            'stat',
-            $path,
-            null,
-            function (?string $error, mixed $result = null) use ($promise) {
-                if ($promise->isCancelled()) {
-                    return;
-                }
-
-                if ($error !== null) {
-                    $promise->reject(new \RuntimeException($error));
-                } else {
-                    $promise->resolve($result);
-                }
-            }
-        );
-
-        $promise->setCancelHandler(function () use ($operationId) {
-            $this->eventLoop->cancelFileOperation($operationId);
-        });
-
-        return $promise;
-    }
-
-    /**
-     * Create a directory asynchronously.
-     *
-     * @param  array<string,mixed>  $options
-     * @return CancellablePromiseInterface<bool>
-     *
-     * @throws \RuntimeException
-     */
-    public function createDirectory(string $path, array $options = []): CancellablePromiseInterface
-    {
-        /** @var CancellablePromise<bool> $promise */
-        $promise = new CancellablePromise;
-
-        $operationId = $this->eventLoop->addFileOperation(
-            'mkdir',
-            $path,
-            null,
-            function (?string $error, mixed $result = null) use ($promise) {
-                if ($promise->isCancelled()) {
-                    return;
-                }
-
-                if ($error !== null) {
-                    $promise->reject(new \RuntimeException($error));
-                } else {
-                    $promise->resolve($result);
-                }
-            },
-            $options
-        );
-
-        $promise->setCancelHandler(function () use ($operationId) {
-            $this->eventLoop->cancelFileOperation($operationId);
-        });
-
-        return $promise;
-    }
-
-    /**
-     * Remove an empty directory asynchronously.
-     *
-     * @return CancellablePromiseInterface<bool>
-     *
-     * @throws \RuntimeException
-     */
-    public function removeDirectory(string $path): CancellablePromiseInterface
-    {
-        /** @var CancellablePromise<bool> $promise */
-        $promise = new CancellablePromise;
-
-        $operationId = $this->eventLoop->addFileOperation(
-            'rmdir',
-            $path,
-            null,
-            function (?string $error, mixed $result = null) use ($promise) {
-                if ($promise->isCancelled()) {
-                    return;
-                }
-
-                if ($error !== null) {
-                    $promise->reject(new \RuntimeException($error));
-                } else {
-                    $promise->resolve($result);
-                }
-            }
-        );
-
-        $promise->setCancelHandler(function () use ($operationId) {
-            $this->eventLoop->cancelFileOperation($operationId);
-        });
-
-        return $promise;
-    }
-
-    /**
-     * Copy a file asynchronously.
-     *
-     * @return CancellablePromiseInterface<bool>
-     *
-     * @throws \RuntimeException
-     */
-    public function copyFile(string $source, string $destination): CancellablePromiseInterface
+    public function copyFileStream(string $source, string $destination): CancellablePromiseInterface
     {
         /** @var CancellablePromise<bool> $promise */
         $promise = new CancellablePromise;
@@ -434,7 +201,8 @@ final readonly class FileHandler
                 } else {
                     $promise->resolve($result);
                 }
-            }
+            },
+            ['use_streaming' => true]
         );
 
         $promise->setCancelHandler(function () use ($operationId, $destination) {
@@ -446,26 +214,24 @@ final readonly class FileHandler
     }
 
     /**
-     * Rename or move a file asynchronously.
+     * Append data to a file asynchronously.
+     * 
+     * Non-cancellable: Operation completes atomically.
      *
-     * @return CancellablePromiseInterface<bool>
+     * @return PromiseInterface<int>
      *
      * @throws \RuntimeException
      */
-    public function renameFile(string $oldPath, string $newPath): CancellablePromiseInterface
+    public function appendFile(string $path, string $data): PromiseInterface
     {
-        /** @var CancellablePromise<bool> $promise */
-        $promise = new CancellablePromise;
+        /** @var Promise<int> $promise */
+        $promise = new Promise;
 
-        $operationId = $this->eventLoop->addFileOperation(
-            'rename',
-            $oldPath,
-            $newPath,
+        $this->eventLoop->addFileOperation(
+            'append',
+            $path,
+            $data,
             function (?string $error, mixed $result = null) use ($promise) {
-                if ($promise->isCancelled()) {
-                    return;
-                }
-
                 if ($error !== null) {
                     $promise->reject(new \RuntimeException($error));
                 } else {
@@ -474,9 +240,217 @@ final readonly class FileHandler
             }
         );
 
-        $promise->setCancelHandler(function () use ($operationId) {
-            $this->eventLoop->cancelFileOperation($operationId);
-        });
+        return $promise;
+    }
+
+    /**
+     * Delete a file asynchronously.
+     * 
+     * Non-cancellable: Operation completes atomically.
+     *
+     * @return PromiseInterface<bool>
+     *
+     * @throws \RuntimeException
+     */
+    public function deleteFile(string $path): PromiseInterface
+    {
+        /** @var Promise<bool> $promise */
+        $promise = new Promise;
+
+        $this->eventLoop->addFileOperation(
+            'delete',
+            $path,
+            null,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            }
+        );
+
+        return $promise;
+    }
+
+    /**
+     * Check existence of a path asynchronously.
+     * 
+     * Non-cancellable: Operation completes atomically.
+     *
+     * @return PromiseInterface<bool>
+     *
+     * @throws \RuntimeException
+     */
+    public function fileExists(string $path): PromiseInterface
+    {
+        /** @var Promise<bool> $promise */
+        $promise = new Promise;
+
+        $this->eventLoop->addFileOperation(
+            'exists',
+            $path,
+            null,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            }
+        );
+
+        return $promise;
+    }
+
+    /**
+     * Get file stats asynchronously.
+     * 
+     * Non-cancellable: Operation completes atomically.
+     *
+     * @return PromiseInterface<array<string,mixed>>
+     *
+     * @throws \RuntimeException
+     */
+    public function getFileStats(string $path): PromiseInterface
+    {
+        /** @var Promise<array<string,mixed>> $promise */
+        $promise = new Promise;
+
+        $this->eventLoop->addFileOperation(
+            'stat',
+            $path,
+            null,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            }
+        );
+
+        return $promise;
+    }
+
+    /**
+     * Create a directory asynchronously.
+     * 
+     * Non-cancellable: Operation completes atomically.
+     *
+     * @param  array<string,mixed>  $options
+     * @return PromiseInterface<bool>
+     *
+     * @throws \RuntimeException
+     */
+    public function createDirectory(string $path, array $options = []): PromiseInterface
+    {
+        /** @var Promise<bool> $promise */
+        $promise = new Promise;
+
+        $this->eventLoop->addFileOperation(
+            'mkdir',
+            $path,
+            null,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            },
+            $options
+        );
+
+        return $promise;
+    }
+
+    /**
+     * Remove a directory asynchronously.
+     * 
+     * Non-cancellable: Operation completes atomically.
+     *
+     * @return PromiseInterface<bool>
+     *
+     * @throws \RuntimeException
+     */
+    public function removeDirectory(string $path): PromiseInterface
+    {
+        /** @var Promise<bool> $promise */
+        $promise = new Promise;
+
+        $this->eventLoop->addFileOperation(
+            'rmdir',
+            $path,
+            null,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            }
+        );
+
+        return $promise;
+    }
+
+    /**
+     * Copy a file asynchronously.
+     * 
+     * Non-cancellable: Operation completes atomically.
+     *
+     * @return PromiseInterface<bool>
+     *
+     * @throws \RuntimeException
+     */
+    public function copyFile(string $source, string $destination): PromiseInterface
+    {
+        /** @var Promise<bool> $promise */
+        $promise = new Promise;
+
+        $this->eventLoop->addFileOperation(
+            'copy',
+            $source,
+            $destination,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            }
+        );
+
+        return $promise;
+    }
+
+    /**
+     * Rename or move a file asynchronously.
+     * 
+     * Non-cancellable: Operation completes atomically.
+     *
+     * @return PromiseInterface<bool>
+     *
+     * @throws \RuntimeException
+     */
+    public function renameFile(string $oldPath, string $newPath): PromiseInterface
+    {
+        /** @var Promise<bool> $promise */
+        $promise = new Promise;
+
+        $this->eventLoop->addFileOperation(
+            'rename',
+            $oldPath,
+            $newPath,
+            function (?string $error, mixed $result = null) use ($promise) {
+                if ($error !== null) {
+                    $promise->reject(new \RuntimeException($error));
+                } else {
+                    $promise->resolve($result);
+                }
+            }
+        );
 
         return $promise;
     }
@@ -505,13 +479,14 @@ final readonly class FileHandler
     /**
      * Write data from a generator for memory-efficient streaming.
      * 
+     * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
+     * 
      * Ideal for large datasets, transformations, or when generating data on-the-fly.
      * Only one chunk is kept in memory at a time.
      * 
      * PERFORMANCE TIP: If your generator yields many small strings (< 1KB each),
      * enable auto-buffering for dramatic speedup (40-50x faster):
      * 
-     *
      * // Slow (90s for 10M lines)
      * $handler->writeFileFromGenerator($path, $generator);
      * 
@@ -569,6 +544,8 @@ final readonly class FileHandler
     /**
      * Read a file as a generator for memory-efficient streaming.
      * 
+     * CANCELLABLE: Can be cancelled mid-operation to stop reading.
+     * 
      * Reads the file in chunks, yielding each chunk as it's read. Ideal for
      * processing large files without loading them entirely into memory.
      * 
@@ -613,6 +590,8 @@ final readonly class FileHandler
 
     /**
      * Read a file as a generator with line-by-line iteration.
+     * 
+     * CANCELLABLE: Can be cancelled mid-operation to stop reading.
      * 
      * Reads the file line by line, yielding each line. Memory-efficient for
      * processing large text files.
