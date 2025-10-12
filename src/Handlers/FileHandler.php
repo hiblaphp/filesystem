@@ -4,6 +4,7 @@ namespace Hibla\Filesystem\Handlers;
 
 use Generator;
 use Hibla\EventLoop\EventLoop;
+use Hibla\Filesystem\Exceptions\FileAlreadyExistsException;
 use Hibla\Filesystem\Exceptions\FileCopyException;
 use Hibla\Filesystem\Exceptions\FileNotFoundException;
 use Hibla\Filesystem\Exceptions\FilePermissionException;
@@ -738,13 +739,11 @@ final readonly class FileHandler
     {
         $errorLower = strtolower($error);
 
-        // Check for specific error patterns
         if (
-            str_contains($errorLower, 'not found') ||
-            str_contains($errorLower, 'no such file') ||
-            str_contains($errorLower, 'does not exist')
+            str_contains($errorLower, 'already exists') ||
+            str_contains($errorLower, 'file exists')
         ) {
-            return new FileNotFoundException($path, $operation);
+            return new FileAlreadyExistsException($path, $operation);
         }
 
         if (
@@ -755,15 +754,34 @@ final readonly class FileHandler
             return new FilePermissionException($path, $operation);
         }
 
-        if ($operation === 'read' || $operation === 'read_generator') {
-            return new FileReadException($path, $error);
-        }
-
         if ($operation === 'write' || $operation === 'write_generator' || $operation === 'append') {
+            if (str_contains($errorLower, 'directory does not exist')) {
+                return new FileWriteException($path, $error);
+            }
+
             return new FileWriteException($path, $error);
         }
 
-        // Default to base exception
+        if ($operation === 'read' || $operation === 'read_generator') {
+            if (
+                str_contains($errorLower, 'not found') ||
+                str_contains($errorLower, 'no such file') ||
+                str_contains($errorLower, 'does not exist')
+            ) {
+                return new FileNotFoundException($path, $operation);
+            }
+
+            return new FileReadException($path, $error);
+        }
+
+        if (
+            str_contains($errorLower, 'not found') ||
+            str_contains($errorLower, 'no such file') ||
+            str_contains($errorLower, 'does not exist')
+        ) {
+            return new FileNotFoundException($path, $operation);
+        }
+
         return new FileSystemException($error, $operation, $path);
     }
 
