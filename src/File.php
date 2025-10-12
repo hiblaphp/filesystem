@@ -9,7 +9,7 @@ use Hibla\Promise\Interfaces\PromiseInterface;
 
 /**
  * Static API for asynchronous file and directory operations.
- * 
+ *
  * This class provides a convenient facade for async file operations with two types of promises:
  * - PromiseInterface: For fast, atomic operations that cannot be cancelled
  * - CancellablePromiseInterface: For streaming operations that support mid-flight cancellation
@@ -37,7 +37,7 @@ final class File
 
     /**
      * Reset the cached FileHandler instance.
-     * 
+     *
      * Primarily for testing purposes to ensure clean state between test runs.
      */
     public static function reset(): void
@@ -47,7 +47,7 @@ final class File
 
     /**
      * Asynchronously read the entire contents of a file.
-     * 
+     *
      * NON-CANCELLABLE: Operation completes atomically.
      * For large files, consider using readStream() or readFromGenerator() for better memory efficiency.
      *
@@ -66,7 +66,7 @@ final class File
 
     /**
      * Asynchronously read a file using streaming (cancellable).
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation.
      * Use when: User control, timeouts, or conditional reading needed.
      * Still loads full file into memory but can be stopped early.
@@ -86,10 +86,10 @@ final class File
 
     /**
      * Read a file as a generator for memory-efficient streaming.
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation.
      * MEMORY EFFICIENT: Only one chunk in memory at a time.
-     * 
+     *
      * Ideal for processing large files without loading entirely into memory.
      *
      * @param  string  $path  The path to the file
@@ -108,10 +108,10 @@ final class File
 
     /**
      * Read a file line-by-line as a generator.
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation.
      * MEMORY EFFICIENT: Only current line in memory.
-     * 
+     *
      * Perfect for processing large text files, logs, or CSV files.
      *
      * @param  string  $path  The path to the file
@@ -130,7 +130,7 @@ final class File
 
     /**
      * Asynchronously write data to a file.
-     * 
+     *
      * NON-CANCELLABLE: Operation completes atomically.
      * For large data or when cancellation needed, use writeStream() or writeFromGenerator().
      *
@@ -150,7 +150,7 @@ final class File
 
     /**
      * Asynchronously write data using streaming (cancellable).
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
      * Use when: User control, timeouts, or conditional writing needed.
      *
@@ -170,12 +170,12 @@ final class File
 
     /**
      * Write data from a generator for memory-efficient streaming.
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
      * MEMORY EFFICIENT: Only one chunk in memory at a time.
-     * 
+     *
      * Perfect for large datasets, transformations, or generating data on-the-fly.
-     * 
+     *
      * PERFORMANCE TIP: Enable auto-buffering for dramatic speedup with small chunks:
      * File::writeFromGenerator($path, $generator, ['buffer_size' => 8192]);
      *
@@ -196,7 +196,7 @@ final class File
 
     /**
      * Asynchronously append data to a file.
-     * 
+     *
      * NON-CANCELLABLE: Operation completes atomically.
      * Creates file if it doesn't exist. Useful for logging or incremental writing.
      *
@@ -213,7 +213,7 @@ final class File
 
     /**
      * Asynchronously check if a file or directory exists.
-     * 
+     *
      * NON-CANCELLABLE: Quick check, completes instantly.
      *
      * @param  string  $path  The filesystem path to check
@@ -228,7 +228,7 @@ final class File
 
     /**
      * Asynchronously retrieve file statistics and metadata.
-     * 
+     *
      * NON-CANCELLABLE: Quick operation, completes instantly.
      *
      * @param  string  $path  The path to get statistics for
@@ -243,7 +243,7 @@ final class File
 
     /**
      * Asynchronously delete a file.
-     * 
+     *
      * NON-CANCELLABLE: Operation completes atomically.
      * Use with caution - cannot be undone.
      *
@@ -259,7 +259,7 @@ final class File
 
     /**
      * Asynchronously copy a file.
-     * 
+     *
      * NON-CANCELLABLE: Operation completes atomically.
      * For large files with cancellation support, use copyStream().
      *
@@ -276,7 +276,7 @@ final class File
 
     /**
      * Asynchronously copy a file using streaming (cancellable).
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation, partial destination will be deleted.
      * Memory efficient for large files.
      *
@@ -293,7 +293,7 @@ final class File
 
     /**
      * Asynchronously rename or move a file.
-     * 
+     *
      * NON-CANCELLABLE: Operation completes atomically.
      * Can rename within directory or move to different location.
      *
@@ -310,7 +310,7 @@ final class File
 
     /**
      * Asynchronously create a directory.
-     * 
+     *
      * NON-CANCELLABLE: Operation completes atomically.
      *
      * @param  string  $path  The directory path to create
@@ -328,7 +328,7 @@ final class File
 
     /**
      * Asynchronously remove a directory.
-     * 
+     *
      * NON-CANCELLABLE: Operation completes atomically.
      * Can remove non-empty directories recursively.
      *
@@ -344,7 +344,7 @@ final class File
 
     /**
      * Start watching a file or directory for changes.
-     * 
+     *
      * Monitors path asynchronously and executes callback when changes occur.
      * Multiple watchers can be active simultaneously.
      *
@@ -366,7 +366,7 @@ final class File
 
     /**
      * Stop watching a file or directory.
-     * 
+     *
      * Removes watcher by its unique ID. Important for preventing memory leaks.
      *
      * @param  string  $watcherId  The watcher ID returned by watch()

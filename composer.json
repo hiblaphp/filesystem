@@ -25,5 +25,16 @@
         "allow-plugins": {
             "pestphp/pest-plugin": true
         }
+    },
+    "scripts": {
+        "test": "./vendor/bin/pest",
+        "format": "./vendor/bin/pint",
+        "format-test": "./vendor/bin/pint --test",
+        "analyze": "./vendor/bin/phpstan analyse",
+        "qa": [
+            "@format-test",
+            "@analyze",
+            "@test"
+        ]
     }
 }

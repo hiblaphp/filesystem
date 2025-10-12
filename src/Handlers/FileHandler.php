@@ -4,10 +4,10 @@ namespace Hibla\Filesystem\Handlers;
 
 use Generator;
 use Hibla\EventLoop\EventLoop;
-use Hibla\Promise\Promise;
 use Hibla\Promise\CancellablePromise;
-use Hibla\Promise\Interfaces\PromiseInterface;
 use Hibla\Promise\Interfaces\CancellablePromiseInterface;
+use Hibla\Promise\Interfaces\PromiseInterface;
+use Hibla\Promise\Promise;
 
 /**
  * Async file operations (non-blocking, with selective cancellation support).
@@ -26,7 +26,7 @@ final readonly class FileHandler
 
     /**
      * Read a file into memory asynchronously.
-     * 
+     *
      * Non-cancellable: Operation completes atomically.
      *
      * @param  array<string,mixed>  $options
@@ -37,7 +37,7 @@ final readonly class FileHandler
     public function readFile(string $path, array $options = []): PromiseInterface
     {
         /** @var Promise<string> $promise */
-        $promise = new Promise;
+        $promise = new Promise();
 
         $this->eventLoop->addFileOperation(
             'read',
@@ -58,7 +58,7 @@ final readonly class FileHandler
 
     /**
      * Open a file for streaming reads asynchronously.
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation.
      * Use when: User control, timeouts, or conditional reading needed.
      *
@@ -70,7 +70,7 @@ final readonly class FileHandler
     public function readFileStream(string $path, array $options = []): CancellablePromiseInterface
     {
         /** @var CancellablePromise<string> $promise */
-        $promise = new CancellablePromise;
+        $promise = new CancellablePromise();
         $options['use_streaming'] = true;
 
         $operationId = $this->eventLoop->addFileOperation(
@@ -100,7 +100,7 @@ final readonly class FileHandler
 
     /**
      * Write data to a file asynchronously.
-     * 
+     *
      * Non-cancellable: Operation completes atomically.
      *
      * @param  array<string,mixed>  $options
@@ -111,7 +111,7 @@ final readonly class FileHandler
     public function writeFile(string $path, string $data, array $options = []): PromiseInterface
     {
         /** @var Promise<int> $promise */
-        $promise = new Promise;
+        $promise = new Promise();
 
         $this->eventLoop->addFileOperation(
             'write',
@@ -132,7 +132,7 @@ final readonly class FileHandler
 
     /**
      * Write data to a file using streaming mode.
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
      * Use when: User control, timeouts, or conditional writing needed.
      *
@@ -144,7 +144,7 @@ final readonly class FileHandler
     public function writeFileStream(string $path, string $data, array $options = []): CancellablePromiseInterface
     {
         /** @var CancellablePromise<int> $promise */
-        $promise = new CancellablePromise;
+        $promise = new CancellablePromise();
         $options['use_streaming'] = true;
 
         $operationId = $this->eventLoop->addFileOperation(
@@ -175,7 +175,7 @@ final readonly class FileHandler
 
     /**
      * Copy a file using streaming operations asynchronously.
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation, partial destination will be deleted.
      *
      * @return CancellablePromiseInterface<bool>
@@ -185,7 +185,7 @@ final readonly class FileHandler
     public function copyFileStream(string $source, string $destination): CancellablePromiseInterface
     {
         /** @var CancellablePromise<bool> $promise */
-        $promise = new CancellablePromise;
+        $promise = new CancellablePromise();
 
         $operationId = $this->eventLoop->addFileOperation(
             'copy',
@@ -215,7 +215,7 @@ final readonly class FileHandler
 
     /**
      * Append data to a file asynchronously.
-     * 
+     *
      * Non-cancellable: Operation completes atomically.
      *
      * @return PromiseInterface<int>
@@ -225,7 +225,7 @@ final readonly class FileHandler
     public function appendFile(string $path, string $data): PromiseInterface
     {
         /** @var Promise<int> $promise */
-        $promise = new Promise;
+        $promise = new Promise();
 
         $this->eventLoop->addFileOperation(
             'append',
@@ -245,7 +245,7 @@ final readonly class FileHandler
 
     /**
      * Delete a file asynchronously.
-     * 
+     *
      * Non-cancellable: Operation completes atomically.
      *
      * @return PromiseInterface<bool>
@@ -255,7 +255,7 @@ final readonly class FileHandler
     public function deleteFile(string $path): PromiseInterface
     {
         /** @var Promise<bool> $promise */
-        $promise = new Promise;
+        $promise = new Promise();
 
         $this->eventLoop->addFileOperation(
             'delete',
@@ -275,7 +275,7 @@ final readonly class FileHandler
 
     /**
      * Check existence of a path asynchronously.
-     * 
+     *
      * Non-cancellable: Operation completes atomically.
      *
      * @return PromiseInterface<bool>
@@ -285,7 +285,7 @@ final readonly class FileHandler
     public function fileExists(string $path): PromiseInterface
     {
         /** @var Promise<bool> $promise */
-        $promise = new Promise;
+        $promise = new Promise();
 
         $this->eventLoop->addFileOperation(
             'exists',
@@ -305,7 +305,7 @@ final readonly class FileHandler
 
     /**
      * Get file stats asynchronously.
-     * 
+     *
      * Non-cancellable: Operation completes atomically.
      *
      * @return PromiseInterface<array<string,mixed>>
@@ -315,7 +315,7 @@ final readonly class FileHandler
     public function getFileStats(string $path): PromiseInterface
     {
         /** @var Promise<array<string,mixed>> $promise */
-        $promise = new Promise;
+        $promise = new Promise();
 
         $this->eventLoop->addFileOperation(
             'stat',
@@ -335,7 +335,7 @@ final readonly class FileHandler
 
     /**
      * Create a directory asynchronously.
-     * 
+     *
      * Non-cancellable: Operation completes atomically.
      *
      * @param  array<string,mixed>  $options
@@ -346,7 +346,7 @@ final readonly class FileHandler
     public function createDirectory(string $path, array $options = []): PromiseInterface
     {
         /** @var Promise<bool> $promise */
-        $promise = new Promise;
+        $promise = new Promise();
 
         $this->eventLoop->addFileOperation(
             'mkdir',
@@ -367,7 +367,7 @@ final readonly class FileHandler
 
     /**
      * Remove a directory asynchronously.
-     * 
+     *
      * Non-cancellable: Operation completes atomically.
      *
      * @return PromiseInterface<bool>
@@ -377,7 +377,7 @@ final readonly class FileHandler
     public function removeDirectory(string $path): PromiseInterface
     {
         /** @var Promise<bool> $promise */
-        $promise = new Promise;
+        $promise = new Promise();
 
         $this->eventLoop->addFileOperation(
             'rmdir',
@@ -397,7 +397,7 @@ final readonly class FileHandler
 
     /**
      * Copy a file asynchronously.
-     * 
+     *
      * Non-cancellable: Operation completes atomically.
      *
      * @return PromiseInterface<bool>
@@ -407,7 +407,7 @@ final readonly class FileHandler
     public function copyFile(string $source, string $destination): PromiseInterface
     {
         /** @var Promise<bool> $promise */
-        $promise = new Promise;
+        $promise = new Promise();
 
         $this->eventLoop->addFileOperation(
             'copy',
@@ -427,7 +427,7 @@ final readonly class FileHandler
 
     /**
      * Rename or move a file asynchronously.
-     * 
+     *
      * Non-cancellable: Operation completes atomically.
      *
      * @return PromiseInterface<bool>
@@ -437,7 +437,7 @@ final readonly class FileHandler
     public function renameFile(string $oldPath, string $newPath): PromiseInterface
     {
         /** @var Promise<bool> $promise */
-        $promise = new Promise;
+        $promise = new Promise();
 
         $this->eventLoop->addFileOperation(
             'rename',
@@ -478,27 +478,27 @@ final readonly class FileHandler
 
     /**
      * Write data from a generator for memory-efficient streaming.
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
-     * 
+     *
      * Ideal for large datasets, transformations, or when generating data on-the-fly.
      * Only one chunk is kept in memory at a time.
-     * 
+     *
      * PERFORMANCE TIP: If your generator yields many small strings (< 1KB each),
      * enable auto-buffering for dramatic speedup (40-50x faster):
-     * 
+     *
      * // Slow (90s for 10M lines)
      * $handler->writeFileFromGenerator($path, $generator);
-     * 
+     *
      * // Fast (2s for 10M lines) - Add buffer_size option
      * $handler->writeFileFromGenerator($path, $generator, ['buffer_size' => 8192]);
      *
      * @param  Generator<string>  $dataGenerator  Generator yielding string chunks
      * @param  array<string,mixed>  $options  [
-     *     'buffer_size' => int,  // Auto-buffer in bytes (0 = disabled, recommended: 8192)
-     *     'create_directories' => bool,
-     *     'flags' => int
-     * ]
+     *                                        'buffer_size' => int,  // Auto-buffer in bytes (0 = disabled, recommended: 8192)
+     *                                        'create_directories' => bool,
+     *                                        'flags' => int
+     *                                        ]
      * @return CancellablePromiseInterface<int>
      */
     public function writeFileFromGenerator(
@@ -513,7 +513,7 @@ final readonly class FileHandler
         }
 
         /** @var CancellablePromise<int> $promise */
-        $promise = new CancellablePromise;
+        $promise = new CancellablePromise();
 
         $operationId = $this->eventLoop->addFileOperation(
             'write_generator',
@@ -543,17 +543,17 @@ final readonly class FileHandler
 
     /**
      * Read a file as a generator for memory-efficient streaming.
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation to stop reading.
-     * 
+     *
      * Reads the file in chunks, yielding each chunk as it's read. Ideal for
      * processing large files without loading them entirely into memory.
-     * 
+     *
      * @param  array<string,mixed>  $options  [
-     *     'chunk_size' => int,  // Bytes per chunk (default: 8192)
-     *     'offset' => int,      // Starting position (default: 0)
-     *     'length' => int|null, // Total bytes to read (default: null = all)
-     * ]
+     *                                        'chunk_size' => int,  // Bytes per chunk (default: 8192)
+     *                                        'offset' => int,      // Starting position (default: 0)
+     *                                        'length' => int|null, // Total bytes to read (default: null = all)
+     *                                        ]
      * @return CancellablePromiseInterface<Generator<string>>
      *
      * @throws \RuntimeException
@@ -561,7 +561,7 @@ final readonly class FileHandler
     public function readFileFromGenerator(string $path, array $options = []): CancellablePromiseInterface
     {
         /** @var CancellablePromise<Generator<string>> $promise */
-        $promise = new CancellablePromise;
+        $promise = new CancellablePromise();
 
         $operationId = $this->eventLoop->addFileOperation(
             'read_generator',
@@ -590,17 +590,17 @@ final readonly class FileHandler
 
     /**
      * Read a file as a generator with line-by-line iteration.
-     * 
+     *
      * CANCELLABLE: Can be cancelled mid-operation to stop reading.
-     * 
+     *
      * Reads the file line by line, yielding each line. Memory-efficient for
      * processing large text files.
-     * 
+     *
      * @param  array<string,mixed>  $options  [
-     *     'chunk_size' => int,     // Internal read buffer (default: 8192)
-     *     'trim' => bool,          // Trim whitespace from lines (default: false)
-     *     'skip_empty' => bool,    // Skip empty lines (default: false)
-     * ]
+     *                                        'chunk_size' => int,     // Internal read buffer (default: 8192)
+     *                                        'trim' => bool,          // Trim whitespace from lines (default: false)
+     *                                        'skip_empty' => bool,    // Skip empty lines (default: false)
+     *                                        ]
      * @return CancellablePromiseInterface<Generator<string>>
      *
      * @throws \RuntimeException
@@ -608,7 +608,7 @@ final readonly class FileHandler
     public function readFileLines(string $path, array $options = []): CancellablePromiseInterface
     {
         /** @var CancellablePromise<Generator<string>> $promise */
-        $promise = new CancellablePromise;
+        $promise = new CancellablePromise();
 
         $options['read_mode'] = 'lines';
 
@@ -639,12 +639,12 @@ final readonly class FileHandler
 
     /**
      * Create a buffered generator wrapper that batches small yields into larger chunks.
-     * 
+     *
      * This improves performance when the source generator yields many small strings.
      *
      * @param  Generator<string>  $generator  Source generator
      * @param  int  $bufferSize  Target buffer size in bytes (default: 8192)
-     * @return Generator<string>  Batched generator
+     * @return Generator<string> Batched generator
      */
     private static function bufferGenerator(Generator $generator, int $bufferSize = 8192): Generator
     {
