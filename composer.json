@@ -8,6 +8,11 @@
             "Hibla\\Filesystem\\": "src/"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
     "require": {
         "php": "^8.2",
         "hiblaphp/event-loop": "dev-main",
