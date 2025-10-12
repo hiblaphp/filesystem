@@ -167,7 +167,7 @@ final readonly class FileHandler
 
         $promise->setCancelHandler(function () use ($operationId, $path) {
             $this->eventLoop->cancelFileOperation($operationId);
-            @unlink($path);
+            @$this->deleteFile($path);
         });
 
         return $promise;
@@ -207,7 +207,7 @@ final readonly class FileHandler
 
         $promise->setCancelHandler(function () use ($operationId, $destination) {
             $this->eventLoop->cancelFileOperation($operationId);
-            @unlink($destination);
+            @$this->deleteFile($destination);
         });
 
         return $promise;
@@ -535,7 +535,7 @@ final readonly class FileHandler
 
         $promise->setCancelHandler(function () use ($operationId, $path) {
             $this->eventLoop->cancelFileOperation($operationId);
-            @unlink($path);
+            @$this->deleteFile($path);
         });
 
         return $promise;
