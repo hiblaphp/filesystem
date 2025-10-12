@@ -26,7 +26,7 @@ final class File
      *
      * @return FileHandler The shared async file operations handler instance
      */
-    protected static function getAsyncFileOperations(): FileHandler
+    private static function getAsyncFileOperations(): FileHandler
     {
         if (self::$asyncOps === null) {
             self::$asyncOps = new FileHandler();
@@ -51,13 +51,15 @@ final class File
      * NON-CANCELLABLE: Operation completes atomically.
      * For large files, consider using readStream() or readFromGenerator() for better memory efficiency.
      *
-     * @param  string  $path  The path to the file to read
-     * @param  array<string, mixed>  $options  Optional configuration:
-     *                                         - 'offset' => int: Starting position (default: 0)
-     *                                         - 'length' => int|null: Max bytes to read (default: null = all)
+     * @param string $path Path to the file to read
+     * @param array<string,mixed> $options Optional configuration:
+     *                                      - 'offset' => int: Starting position (default: 0)
+     *                                      - 'length' => int|null: Max bytes to read (default: null = all)
      * @return PromiseInterface<string> Promise resolving to complete file contents
      *
-     * @throws \RuntimeException If file cannot be read or doesn't exist
+     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the file does not exist
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to read
+     * @throws \Hibla\Filesystem\Exceptions\FileReadException If the read operation fails
      */
     public static function read(string $path, array $options = []): PromiseInterface
     {
@@ -71,13 +73,15 @@ final class File
      * Use when: User control, timeouts, or conditional reading needed.
      * Still loads full file into memory but can be stopped early.
      *
-     * @param  string  $path  The path to the file to read
-     * @param  array<string, mixed>  $options  Optional configuration:
-     *                                         - 'offset' => int: Starting position
-     *                                         - 'length' => int|null: Max bytes to read
+     * @param string $path Path to the file to read
+     * @param array<string,mixed> $options Optional configuration:
+     *                                      - 'offset' => int: Starting position
+     *                                      - 'length' => int|null: Max bytes to read
      * @return CancellablePromiseInterface<string> Promise resolving to file contents (cancellable)
      *
-     * @throws \RuntimeException If file cannot be opened or read
+     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the file does not exist
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to read
+     * @throws \Hibla\Filesystem\Exceptions\FileReadException If the read operation fails
      */
     public static function readStream(string $path, array $options = []): CancellablePromiseInterface
     {
@@ -92,14 +96,16 @@ final class File
      *
      * Ideal for processing large files without loading entirely into memory.
      *
-     * @param  string  $path  The path to the file
-     * @param  array<string, mixed>  $options  Optional configuration:
-     *                                         - 'chunk_size' => int: Bytes per chunk (default: 8192)
-     *                                         - 'offset' => int: Starting position (default: 0)
-     *                                         - 'length' => int|null: Total bytes to read (default: null = all)
+     * @param string $path Path to the file
+     * @param array<string,mixed> $options Optional configuration:
+     *                                      - 'chunk_size' => int: Bytes per chunk (default: 8192)
+     *                                      - 'offset' => int: Starting position (default: 0)
+     *                                      - 'length' => int|null: Total bytes to read (default: null = all)
      * @return CancellablePromiseInterface<Generator<string>> Promise resolving to generator yielding chunks
      *
-     * @throws \RuntimeException If file cannot be read
+     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the file does not exist
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to read
+     * @throws \Hibla\Filesystem\Exceptions\FileReadException If the read operation fails
      */
     public static function readFromGenerator(string $path, array $options = []): CancellablePromiseInterface
     {
@@ -114,14 +120,16 @@ final class File
      *
      * Perfect for processing large text files, logs, or CSV files.
      *
-     * @param  string  $path  The path to the file
-     * @param  array<string, mixed>  $options  Optional configuration:
-     *                                         - 'chunk_size' => int: Internal buffer size (default: 8192)
-     *                                         - 'trim' => bool: Trim whitespace from lines (default: false)
-     *                                         - 'skip_empty' => bool: Skip empty lines (default: false)
+     * @param string $path Path to the file
+     * @param array<string,mixed> $options Optional configuration:
+     *                                      - 'chunk_size' => int: Internal buffer size (default: 8192)
+     *                                      - 'trim' => bool: Trim whitespace from lines (default: false)
+     *                                      - 'skip_empty' => bool: Skip empty lines (default: false)
      * @return CancellablePromiseInterface<Generator<string>> Promise resolving to generator yielding lines
      *
-     * @throws \RuntimeException If file cannot be read
+     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the file does not exist
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to read
+     * @throws \Hibla\Filesystem\Exceptions\FileReadException If the read operation fails
      */
     public static function readLines(string $path, array $options = []): CancellablePromiseInterface
     {
@@ -134,14 +142,15 @@ final class File
      * NON-CANCELLABLE: Operation completes atomically.
      * For large data or when cancellation needed, use writeStream() or writeFromGenerator().
      *
-     * @param  string  $path  The path where the file should be written
-     * @param  string  $data  The data to write
-     * @param  array<string, mixed>  $options  Optional configuration:
-     *                                         - 'create_directories' => bool: Create parent dirs (default: false)
-     *                                         - 'flags' => int: File operation flags
+     * @param string $path Path where the file should be written
+     * @param string $data Data to write to the file
+     * @param array<string,mixed> $options Optional configuration:
+     *                                      - 'create_directories' => bool: Create parent dirs (default: false)
+     *                                      - 'flags' => int: File operation flags
      * @return PromiseInterface<int> Promise resolving to number of bytes written
      *
-     * @throws \RuntimeException If file cannot be written
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to write
+     * @throws \Hibla\Filesystem\Exceptions\FileWriteException If the write operation fails
      */
     public static function write(string $path, string $data, array $options = []): PromiseInterface
     {
@@ -154,14 +163,15 @@ final class File
      * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
      * Use when: User control, timeouts, or conditional writing needed.
      *
-     * @param  string  $path  The path where the file should be written
-     * @param  string  $data  The data to write
-     * @param  array<string, mixed>  $options  Optional configuration:
-     *                                         - 'create_directories' => bool: Create parent dirs
-     *                                         - 'flags' => int: File operation flags
+     * @param string $path Path where the file should be written
+     * @param string $data Data to write to the file
+     * @param array<string,mixed> $options Optional configuration:
+     *                                      - 'create_directories' => bool: Create parent dirs
+     *                                      - 'flags' => int: File operation flags
      * @return CancellablePromiseInterface<int> Promise resolving to bytes written (cancellable)
      *
-     * @throws \RuntimeException If file cannot be written
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to write
+     * @throws \Hibla\Filesystem\Exceptions\FileWriteException If the write operation fails
      */
     public static function writeStream(string $path, string $data, array $options = []): CancellablePromiseInterface
     {
@@ -179,15 +189,16 @@ final class File
      * PERFORMANCE TIP: Enable auto-buffering for dramatic speedup with small chunks:
      * File::writeFromGenerator($path, $generator, ['buffer_size' => 8192]);
      *
-     * @param  string  $path  The path where the file should be written
-     * @param  Generator<string>  $dataGenerator  Generator yielding string chunks
-     * @param  array<string, mixed>  $options  Optional configuration:
-     *                                         - 'buffer_size' => int: Auto-buffer size (0=disabled, recommended: 8192)
-     *                                         - 'create_directories' => bool: Create parent dirs
-     *                                         - 'flags' => int: File operation flags
+     * @param string $path Path where the file should be written
+     * @param Generator<string> $dataGenerator Generator yielding string chunks
+     * @param array<string,mixed> $options Optional configuration:
+     *                                      - 'buffer_size' => int: Auto-buffer size (0=disabled, recommended: 8192)
+     *                                      - 'create_directories' => bool: Create parent dirs
+     *                                      - 'flags' => int: File operation flags
      * @return CancellablePromiseInterface<int> Promise resolving to bytes written (cancellable)
      *
-     * @throws \RuntimeException If file cannot be written
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to write
+     * @throws \Hibla\Filesystem\Exceptions\FileWriteException If the write operation fails
      */
     public static function writeFromGenerator(string $path, Generator $dataGenerator, array $options = []): CancellablePromiseInterface
     {
@@ -200,11 +211,12 @@ final class File
      * NON-CANCELLABLE: Operation completes atomically.
      * Creates file if it doesn't exist. Useful for logging or incremental writing.
      *
-     * @param  string  $path  The path to the file
-     * @param  string  $data  The data to append
+     * @param string $path Path to the file
+     * @param string $data Data to append to the file
      * @return PromiseInterface<int> Promise resolving to number of bytes appended
      *
-     * @throws \RuntimeException If file cannot be opened for appending
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to write
+     * @throws \Hibla\Filesystem\Exceptions\FileWriteException If the append operation fails
      */
     public static function append(string $path, string $data): PromiseInterface
     {
@@ -216,10 +228,10 @@ final class File
      *
      * NON-CANCELLABLE: Quick check, completes instantly.
      *
-     * @param  string  $path  The filesystem path to check
-     * @return PromiseInterface<bool> Promise resolving to true if path exists
+     * @param string $path Path to check for existence
+     * @return PromiseInterface<bool> Promise resolving to true if path exists, false otherwise
      *
-     * @throws \RuntimeException If check fails due to system errors
+     * @throws \Hibla\Filesystem\Exceptions\FileSystemException If the check operation fails
      */
     public static function exists(string $path): PromiseInterface
     {
@@ -231,10 +243,12 @@ final class File
      *
      * NON-CANCELLABLE: Quick operation, completes instantly.
      *
-     * @param  string  $path  The path to get statistics for
-     * @return PromiseInterface<array<string, mixed>> Promise resolving to file stats array
+     * @param string $path Path to get statistics for
+     * @return PromiseInterface<array<string,mixed>> Promise resolving to file stats array
      *
-     * @throws \RuntimeException If file doesn't exist or stats cannot be retrieved
+     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the file does not exist
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to stat
+     * @throws \Hibla\Filesystem\Exceptions\FileSystemException If the stat operation fails
      */
     public static function getStats(string $path): PromiseInterface
     {
@@ -247,10 +261,12 @@ final class File
      * NON-CANCELLABLE: Operation completes atomically.
      * Use with caution - cannot be undone.
      *
-     * @param  string  $path  The path to the file to delete
+     * @param string $path Path to the file to delete
      * @return PromiseInterface<bool> Promise resolving to true on successful deletion
      *
-     * @throws \RuntimeException If file doesn't exist or cannot be deleted
+     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the file does not exist
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to delete
+     * @throws \Hibla\Filesystem\Exceptions\FileSystemException If the delete operation fails
      */
     public static function delete(string $path): PromiseInterface
     {
@@ -263,11 +279,13 @@ final class File
      * NON-CANCELLABLE: Operation completes atomically.
      * For large files with cancellation support, use copyStream().
      *
-     * @param  string  $source  The source file path
-     * @param  string  $destination  The destination file path
+     * @param string $source Path to the source file
+     * @param string $destination Path to the destination file
      * @return PromiseInterface<bool> Promise resolving to true on successful copy
      *
-     * @throws \RuntimeException If source doesn't exist or destination cannot be written
+     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the source file does not exist
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions
+     * @throws \Hibla\Filesystem\Exceptions\FileCopyException If the copy operation fails
      */
     public static function copy(string $source, string $destination): PromiseInterface
     {
@@ -280,11 +298,13 @@ final class File
      * CANCELLABLE: Can be cancelled mid-operation, partial destination will be deleted.
      * Memory efficient for large files.
      *
-     * @param  string  $source  The source file path
-     * @param  string  $destination  The destination file path
+     * @param string $source Path to the source file
+     * @param string $destination Path to the destination file
      * @return CancellablePromiseInterface<bool> Promise resolving to true on successful copy (cancellable)
      *
-     * @throws \RuntimeException If source doesn't exist or copy fails
+     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the source file does not exist
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions
+     * @throws \Hibla\Filesystem\Exceptions\FileCopyException If the copy operation fails
      */
     public static function copyStream(string $source, string $destination): CancellablePromiseInterface
     {
@@ -297,11 +317,13 @@ final class File
      * NON-CANCELLABLE: Operation completes atomically.
      * Can rename within directory or move to different location.
      *
-     * @param  string  $oldPath  The current file path
-     * @param  string  $newPath  The new file path
+     * @param string $oldPath Current path of the file
+     * @param string $newPath New path for the file
      * @return PromiseInterface<bool> Promise resolving to true on successful rename/move
      *
-     * @throws \RuntimeException If source doesn't exist or destination cannot be written
+     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the source file does not exist
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions
+     * @throws \Hibla\Filesystem\Exceptions\FileSystemException If the rename operation fails
      */
     public static function rename(string $oldPath, string $newPath): PromiseInterface
     {
@@ -313,13 +335,14 @@ final class File
      *
      * NON-CANCELLABLE: Operation completes atomically.
      *
-     * @param  string  $path  The directory path to create
-     * @param  array<string, mixed>  $options  Optional configuration:
-     *                                         - 'mode' => int: Directory permissions (default: 0755)
-     *                                         - 'recursive' => bool: Create parent dirs (default: false)
+     * @param string $path Directory path to create
+     * @param array<string,mixed> $options Optional configuration:
+     *                                      - 'mode' => int: Directory permissions (default: 0755)
+     *                                      - 'recursive' => bool: Create parent dirs (default: false)
      * @return PromiseInterface<bool> Promise resolving to true on successful creation
      *
-     * @throws \RuntimeException If directory already exists or cannot be created
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to create
+     * @throws \Hibla\Filesystem\Exceptions\FileSystemException If the directory creation fails
      */
     public static function createDirectory(string $path, array $options = []): PromiseInterface
     {
@@ -332,10 +355,12 @@ final class File
      * NON-CANCELLABLE: Operation completes atomically.
      * Can remove non-empty directories recursively.
      *
-     * @param  string  $path  The directory path to remove
+     * @param string $path Directory path to remove
      * @return PromiseInterface<bool> Promise resolving to true on successful removal
      *
-     * @throws \RuntimeException If directory doesn't exist or cannot be removed
+     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the directory does not exist
+     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to remove
+     * @throws \Hibla\Filesystem\Exceptions\FileSystemException If the directory removal fails
      */
     public static function removeDirectory(string $path): PromiseInterface
     {
@@ -348,16 +373,18 @@ final class File
      * Monitors path asynchronously and executes callback when changes occur.
      * Multiple watchers can be active simultaneously.
      *
-     * @param  string  $path  The filesystem path to monitor
-     * @param  callable  $callback  Function to execute on changes:
-     *                              function(string $event, string $path): void
-     *                              - $event: 'modified', 'deleted', 'created', etc.
-     *                              - $path: The path where change occurred
-     * @param  array<string, mixed>  $options  Optional configuration:
-     *                                         - 'interval' => int: Polling interval in milliseconds (default: 1000)
+     * @param string $path Filesystem path to monitor
+     * @param callable $callback Function to execute on changes:
+     *                           function(string $event, string $path): void
+     *                           - $event: 'modified', 'deleted', 'created', etc.
+     *                           - $path: The path where change occurred
+     * @param array<string,mixed> $options Optional configuration:
+     *                                      - 'polling_interval' => float: Time between checks in seconds (default: 0.1)
+     *                                      - 'watch_size' => bool: Whether to watch file size changes (default: true)
+     *                                      - 'watch_content' => bool: Whether to watch content hash (default: false, expensive)
      * @return string Unique watcher ID for use with unwatch()
      *
-     * @throws \RuntimeException If path doesn't exist or watcher cannot be established
+     * @throws \Hibla\Filesystem\Exceptions\FileSystemException If the watch operation fails
      */
     public static function watch(string $path, callable $callback, array $options = []): string
     {
@@ -369,7 +396,7 @@ final class File
      *
      * Removes watcher by its unique ID. Important for preventing memory leaks.
      *
-     * @param  string  $watcherId  The watcher ID returned by watch()
+     * @param string $watcherId Watcher ID returned by watch()
      * @return bool True if watcher was removed, false if ID not found
      */
     public static function unwatch(string $watcherId): bool

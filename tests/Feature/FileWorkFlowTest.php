@@ -21,7 +21,6 @@ describe('File processing workflows', function () {
         $dest = FeatureTestHelper::getTestPath('output.txt');
         file_put_contents($source, 'hello world');
 
-        // Complete workflow: read -> transform -> write
         $content = File::read($source)->await();
         $transformed = strtoupper($content);
         File::write($dest, $transformed)->await();
@@ -36,7 +35,6 @@ describe('File processing workflows', function () {
         $lines = array_fill(0, 10000, 'Line of text');
         file_put_contents($source, implode("\n", $lines));
 
-        // Read lines, transform, write back
         $lineGenerator = File::readLines($source)->await();
 
         $transformedGenerator = (function () use ($lineGenerator) {
@@ -248,54 +246,6 @@ describe('Directory management workflows', function () {
 
         expect(is_dir($temp))->toBeFalse();
     });
-});
-
-describe('File watching workflows', function () {
-    it('detects file modifications', function () {
-        $path = FeatureTestHelper::getTestPath('watched.txt');
-        file_put_contents($path, 'initial');
-
-        $modifications = [];
-        $watcherId = File::watch($path, function ($event, $changedPath) use (&$modifications) {
-            $modifications[] = ['event' => $event, 'path' => $changedPath];
-        });
-
-        sleep(1);
-        file_put_contents($path, 'modified');
-        sleep(2); 
-
-        File::unwatch($watcherId);
-
-        expect(count($modifications))->toBeGreaterThan(0);
-    })->skip('File watching requires event loop running');
-
-    it('watches multiple files simultaneously', function () {
-        $file1 = FeatureTestHelper::getTestPath('file1.txt');
-        $file2 = FeatureTestHelper::getTestPath('file2.txt');
-        file_put_contents($file1, 'content1');
-        file_put_contents($file2, 'content2');
-
-        $changes = [];
-
-        $watcher1 = File::watch($file1, function () use (&$changes) {
-            $changes[] = 'file1';
-        });
-
-        $watcher2 = File::watch($file2, function () use (&$changes) {
-            $changes[] = 'file2';
-        });
-
-        sleep(1);
-        file_put_contents($file1, 'updated1');
-        file_put_contents($file2, 'updated2');
-        sleep(2);
-
-        File::unwatch($watcher1);
-        File::unwatch($watcher2);
-
-        expect(in_array('file1', $changes))->toBeTrue();
-        expect(in_array('file2', $changes))->toBeTrue();
-    })->skip('File watching requires event loop running');
 });
 
 describe('Data processing workflows', function () {
