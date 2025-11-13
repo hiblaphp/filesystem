@@ -15,6 +15,7 @@ use Hibla\Promise\CancellablePromise;
 use Hibla\Promise\Interfaces\CancellablePromiseInterface;
 use Hibla\Promise\Interfaces\PromiseInterface;
 use Hibla\Promise\Promise;
+use Hibla\Stream\Stream;
 
 /**
  * Async file operations (non-blocking, with selective cancellation support).
@@ -84,29 +85,72 @@ final readonly class FileHandler
     {
         /** @var CancellablePromise<string> $promise */
         $promise = new CancellablePromise();
-        $options['use_streaming'] = true;
 
-        $operationId = $this->eventLoop->addFileOperation(
-            'read',
-            $path,
-            null,
-            function (?string $error, mixed $result = null) use ($promise, $path): void {
-                if ($promise->isCancelled()) {
-                    return;
+        if (!file_exists($path)) {
+            $promise->reject(new FileNotFoundException($path, 'read'));
+            return $promise;
+        }
+
+        if (!is_readable($path)) {
+            $promise->reject(new FilePermissionException($path, 'read'));
+            return $promise;
+        }
+
+        try {
+            $chunkSize = 65536;
+            if (isset($options['chunk_size']) && is_numeric($options['chunk_size'])) {
+                $chunkSize = (int)$options['chunk_size'];
+            }
+            $stream = Stream::readableFile($path, $chunkSize);
+
+            $offset = $options['offset'] ?? 0;
+            if ($offset > 0 && is_numeric($offset)) {
+                if (!$stream->seek((int)$offset)) {
+                    $stream->close();
+                    $promise->reject(new FileReadException($path, "Failed to seek to offset: $offset"));
+                    return $promise;
                 }
+            }
 
-                if ($error !== null) {
-                    $promise->reject($this->createException($error, 'read', $path));
-                } else {
-                    $promise->resolve($result);
+            $maxLength = 1048576;
+            if (isset($options['max_length']) && is_numeric($options['max_length'])) {
+                $maxLength = (int)$options['max_length'];
+            }
+            $readPromise = $stream->readAll($maxLength);
+
+            $readPromise->then(
+                function (?string $data) use ($promise, $stream): void {
+                    $stream->close();
+                    if ($promise->isCancelled()) {
+                        return;
+                    }
+                    $promise->resolve($data ?? '');
+                },
+
+                function (mixed $error) use ($promise, $stream, $path): void {
+                    $stream->close();
+                    if ($promise->isCancelled()) {
+                        return;
+                    }
+
+                    if ($error instanceof \Throwable) {
+                        $errorMessage = $error->getMessage();
+                    } elseif (is_scalar($error) || (is_object($error) && method_exists($error, '__toString'))) {
+                        $errorMessage = (string)$error;
+                    } else {
+                        $errorMessage = 'Unknown error occurred';
+                    }
+                    $promise->reject($this->createException($errorMessage, 'read', $path));
                 }
-            },
-            $options
-        );
+            );
 
-        $promise->setCancelHandler(function () use ($operationId): void {
-            $this->eventLoop->cancelFileOperation($operationId);
-        });
+            $promise->setCancelHandler(function () use ($readPromise, $stream): void {
+                $readPromise->cancel();
+                $stream->close();
+            });
+        } catch (\Throwable $e) {
+            $promise->reject($this->createException($e->getMessage(), 'read', $path));
+        }
 
         return $promise;
     }
@@ -164,30 +208,53 @@ final readonly class FileHandler
     {
         /** @var CancellablePromise<int> $promise */
         $promise = new CancellablePromise();
-        $options['use_streaming'] = true;
 
-        $operationId = $this->eventLoop->addFileOperation(
-            'write',
-            $path,
-            $data,
-            function (?string $error, mixed $result = null) use ($promise, $path): void {
-                if ($promise->isCancelled()) {
-                    return;
+        try {
+            $this->createDirectoriesIfNeeded($path, $options, $promise);
+
+            $append = isset($options['append']) ? (bool)$options['append'] : false;
+
+            $softLimit = 65536;
+            if (isset($options['soft_limit']) && is_numeric($options['soft_limit'])) {
+                $softLimit = (int)$options['soft_limit'];
+            }
+            $stream = Stream::writableFile($path, $append, $softLimit);
+
+            $writePromise = $stream->end($data);
+
+            $writePromise->then(
+                function () use ($promise, $data): void {
+                    if ($promise->isCancelled()) {
+                        return;
+                    }
+                    $promise->resolve(strlen($data));
+                },
+
+                function (mixed $error) use ($promise, $stream, $path): void {
+                    $stream->close();
+                    if ($promise->isCancelled()) {
+                        return;
+                    }
+
+                    if ($error instanceof \Throwable) {
+                        $errorMessage = $error->getMessage();
+                    } elseif (is_scalar($error) || (is_object($error) && method_exists($error, '__toString'))) {
+                        $errorMessage = (string)$error;
+                    } else {
+                        $errorMessage = 'Unknown error occurred';
+                    }
+                    $promise->reject($this->createException($errorMessage, 'write', $path));
                 }
+            );
 
-                if ($error !== null) {
-                    $promise->reject($this->createException($error, 'write', $path));
-                } else {
-                    $promise->resolve($result);
-                }
-            },
-            $options
-        );
-
-        $promise->setCancelHandler(function () use ($operationId, $path): void {
-            $this->eventLoop->cancelFileOperation($operationId);
-            @$this->deleteFile($path);
-        });
+            $promise->setCancelHandler(function () use ($writePromise, $stream, $path): void {
+                $writePromise->cancel();
+                $stream->close();
+                @unlink($path);
+            });
+        } catch (\Throwable $e) {
+            $promise->reject($this->createException($e->getMessage(), 'write', $path));
+        }
 
         return $promise;
     }
@@ -210,28 +277,48 @@ final readonly class FileHandler
         /** @var CancellablePromise<bool> $promise */
         $promise = new CancellablePromise();
 
-        $operationId = $this->eventLoop->addFileOperation(
-            'copy',
-            $source,
-            $destination,
-            function (?string $error, mixed $result = null) use ($promise, $source, $destination): void {
-                if ($promise->isCancelled()) {
-                    return;
-                }
+        try {
+            $readStream = Stream::readableFile($source);
+            $writeStream = Stream::writableFile($destination);
 
-                if ($error !== null) {
-                    $promise->reject($this->createCopyException($error, $source, $destination));
-                } else {
-                    $promise->resolve($result);
-                }
-            },
-            ['use_streaming' => true]
-        );
+            $pipePromise = $readStream->pipe($writeStream, ['end' => true]);
 
-        $promise->setCancelHandler(function () use ($operationId, $destination): void {
-            $this->eventLoop->cancelFileOperation($operationId);
-            @$this->deleteFile($destination);
-        });
+            $pipePromise->then(
+                function () use ($promise, $readStream, $writeStream): void {
+                    $readStream->close();
+                    $writeStream->close();
+                    if ($promise->isCancelled()) {
+                        return;
+                    }
+                    $promise->resolve(true);
+                },
+                function (mixed $error) use ($promise, $readStream, $writeStream, $source, $destination): void {
+                    $readStream->close();
+                    $writeStream->close();
+                    if ($promise->isCancelled()) {
+                        return;
+                    }
+                 
+                    if ($error instanceof \Throwable) {
+                        $errorMessage = $error->getMessage();
+                    } elseif (is_scalar($error) || (is_object($error) && method_exists($error, '__toString'))) {
+                        $errorMessage = (string)$error;
+                    } else {
+                        $errorMessage = 'Unknown error occurred';
+                    }
+                    $promise->reject($this->createCopyException($errorMessage, $source, $destination));
+                }
+            );
+
+            $promise->setCancelHandler(function () use ($pipePromise, $readStream, $writeStream, $destination): void {
+                $pipePromise->cancel();
+                $readStream->close();
+                $writeStream->close();
+                @unlink($destination);
+            });
+        } catch (\Throwable $e) {
+            $promise->reject($this->createCopyException($e->getMessage(), $source, $destination));
+        }
 
         return $promise;
     }
@@ -728,11 +815,6 @@ final readonly class FileHandler
     }
 
     /**
-     * Create appropriate exception based on error message.
-     *
-     * @param string $error Error message from the operation
-     * @param string $operation Operation type (read, write, etc.)
-     * @param string $path File path involved in the operation
      * @return \Throwable Appropriate exception instance
      */
     private function createException(string $error, string $operation, string $path): \Throwable
@@ -766,7 +848,8 @@ final readonly class FileHandler
             if (
                 str_contains($errorLower, 'not found') ||
                 str_contains($errorLower, 'no such file') ||
-                str_contains($errorLower, 'does not exist')
+                str_contains($errorLower, 'does not exist') ||
+                str_contains($errorLower, 'failed to open')
             ) {
                 return new FileNotFoundException($path, $operation);
             }
@@ -786,13 +869,29 @@ final readonly class FileHandler
     }
 
     /**
-     * Create appropriate exception for copy operations.
-     *
-     * @param string $error Error message from the operation
-     * @param string $source Source file path
-     * @param string $destination Destination file path
-     * @return \Throwable Appropriate exception instance
+     * @param array<string, mixed> $options
+     * @param CancellablePromise<int> $promise
      */
+    private function createDirectoriesIfNeeded(string $path, array $options, CancellablePromise $promise): void
+    {
+        $createDirs = $options['create_directories'] ?? false;
+        if (!is_scalar($createDirs) || !(bool) $createDirs) {
+            return;
+        }
+
+        $dir = dirname($path);
+        if (is_dir($dir)) {
+            return;
+        }
+
+        if (@mkdir($dir, 0755, true)) {
+            return;
+        }
+
+        $promise->reject(new FileWriteException($path, "Failed to create directory: $dir"));
+        throw new \RuntimeException("Failed to create directory: $dir");
+    }
+
     private function createCopyException(string $error, string $source, string $destination): \Throwable
     {
         $errorLower = strtolower($error);

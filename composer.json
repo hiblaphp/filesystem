@@ -17,7 +17,8 @@
         "php": "^8.2",
         "hiblaphp/event-loop": "dev-main",
         "hiblaphp/promise": "dev-main",
-        "hiblaphp/async": "dev-main"
+        "hiblaphp/async": "dev-main",
+        "hiblaphp/stream": "dev-main"
     },
     "require-dev": {
         "pestphp/pest": "^3.0",
