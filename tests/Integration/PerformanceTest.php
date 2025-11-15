@@ -33,33 +33,6 @@ describe('Concurrent Operations', function () {
     });
 });
 
-describe('Large Dataset Processing', function () {
-    it('processes large files efficiently', function () {
-        $source = IntegrationTestHelper::getTestPath('large_dataset.txt');
-        
-        $generator = function () {
-            for ($i = 0; $i < 50000; $i++) {
-                yield "Record $i: " . str_repeat('data', 10) . "\n";
-            }
-        };
-        
-        File::writeFromGenerator($source, $generator(), ['buffer_size' => 8192])->await();
-
-        $measured = IntegrationTestHelper::measureTime(function () use ($source) {
-            $lineGenerator = File::readLines($source)->await();
-            $count = 0;
-            foreach ($lineGenerator as $line) {
-                $count++;
-            }
-            
-            return $count;
-        });
-
-        expect($measured['result'])->toBe(50000);
-        expect($measured['duration'])->toBeLessThan(10);
-    });
-});
-
 describe('Rapid Modifications', function () {
     it('handles rapid file modifications', function () {
         $file = IntegrationTestHelper::getTestPath('rapid.txt');

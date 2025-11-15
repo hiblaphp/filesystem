@@ -28,51 +28,6 @@ describe('File processing workflows', function () {
         expect(file_get_contents($dest))->toBe('HELLO WORLD');
     });
 
-    it('processes large file in chunks with generator', function () {
-        $source = FeatureTestHelper::getTestPath('large.txt');
-        $dest = FeatureTestHelper::getTestPath('processed.txt');
-
-        $lines = array_fill(0, 10000, 'Line of text');
-        file_put_contents($source, implode("\n", $lines));
-
-        $lineGenerator = File::readLines($source)->await();
-
-        $transformedGenerator = (function () use ($lineGenerator) {
-            foreach ($lineGenerator as $line) {
-                yield strtoupper($line) . "\n";
-            }
-        })();
-
-        File::writeFromGenerator($dest, $transformedGenerator, ['buffer_size' => 8192])->await();
-
-        $result = file_get_contents($dest);
-        expect($result)->toContain('LINE OF TEXT');
-    });
-
-    it('filters file content line by line', function () {
-        $source = FeatureTestHelper::getTestPath('log.txt');
-        $dest = FeatureTestHelper::getTestPath('errors.txt');
-
-        file_put_contents($source, "INFO: Starting\nERROR: Failed\nINFO: Done\nERROR: Crash");
-
-        $lineGenerator = File::readLines($source)->await();
-
-        $errorGenerator = (function () use ($lineGenerator) {
-            foreach ($lineGenerator as $line) {
-                if (str_starts_with($line, 'ERROR:')) {
-                    yield $line . "\n";
-                }
-            }
-        })();
-
-        File::writeFromGenerator($dest, $errorGenerator)->await();
-
-        $errors = file_get_contents($dest);
-        expect($errors)->toContain('ERROR: Failed');
-        expect($errors)->toContain('ERROR: Crash');
-        expect($errors)->not->toContain('INFO:');
-    });
-
     it('backs up file before modifying', function () {
         $original = FeatureTestHelper::getTestPath('data.txt');
         $backup = FeatureTestHelper::getTestPath('data.txt.bak');
@@ -249,28 +204,6 @@ describe('Directory management workflows', function () {
 });
 
 describe('Data processing workflows', function () {
-    it('processes CSV file line by line', function () {
-        $csv = FeatureTestHelper::getTestPath('data.csv');
-        file_put_contents($csv, "name,age\nAlice,30\nBob,25\nCharlie,35");
-
-        $lineGenerator = File::readLines($csv, ['skip_empty' => true])->await();
-
-        $records = [];
-        $isHeader = true;
-        foreach ($lineGenerator as $line) {
-            if ($isHeader) {
-                $isHeader = false;
-                continue;
-            }
-            [$name, $age] = explode(',', $line);
-            $records[] = ['name' => $name, 'age' => (int)$age];
-        }
-
-        expect(count($records))->toBe(3);
-        expect($records[0]['name'])->toBe('Alice');
-        expect($records[0]['age'])->toBe(30);
-    });
-
     it('generates report from multiple files', function () {
         $file1 = FeatureTestHelper::getTestPath('data1.txt');
         $file2 = FeatureTestHelper::getTestPath('data2.txt');
@@ -290,37 +223,6 @@ describe('Data processing workflows', function () {
         expect($result)->toContain('=== Report ===');
         expect($result)->toContain('Item A: 100');
         expect($result)->toContain('Item C: 150');
-    });
-
-    it('splits large file into smaller chunks', function () {
-        $source = FeatureTestHelper::getTestPath('large.txt');
-        $lines = array_fill(0, 1000, 'Line of data');
-        file_put_contents($source, implode("\n", $lines));
-
-        $lineGenerator = File::readLines($source)->await();
-
-        $chunkSize = 100;
-        $chunkNum = 0;
-        $buffer = [];
-
-        foreach ($lineGenerator as $line) {
-            $buffer[] = $line;
-
-            if (count($buffer) >= $chunkSize) {
-                $chunkFile = FeatureTestHelper::getTestPath("chunk_$chunkNum.txt");
-                File::write($chunkFile, implode("\n", $buffer))->await();
-                $buffer = [];
-                $chunkNum++;
-            }
-        }
-
-        if (! empty($buffer)) {
-            $chunkFile = FeatureTestHelper::getTestPath("chunk_$chunkNum.txt");
-            File::write($chunkFile, implode("\n", $buffer))->await();
-        }
-
-        expect(file_exists(FeatureTestHelper::getTestPath('chunk_0.txt')))->toBeTrue();
-        expect(file_exists(FeatureTestHelper::getTestPath('chunk_9.txt')))->toBeTrue();
     });
 });
 
@@ -359,51 +261,5 @@ describe('Error recovery workflows', function () {
 
         expect($config)->toBeArray();
         expect($config['default'])->toBeTrue();
-    });
-});
-
-describe('Performance optimization workflows', function () {
-    it('uses buffered writes for many small chunks', function () {
-        $path = FeatureTestHelper::getTestPath('buffered.txt');
-
-        $startTime = microtime(true);
-
-        $generator = function () {
-            for ($i = 0; $i < 10000; $i++) {
-                yield "Line $i\n";
-            }
-        };
-
-        File::writeFromGenerator($path, $generator(), ['buffer_size' => 8192])->await();
-
-        $duration = microtime(true) - $startTime;
-
-        expect(file_exists($path))->toBeTrue();
-        expect($duration)->toBeLessThan(5); // Should complete in reasonable time
-    });
-
-    it('processes large file without loading into memory', function () {
-        $source = FeatureTestHelper::getTestPath('huge.txt');
-        $dest = FeatureTestHelper::getTestPath('counted.txt');
-
-        // Create large file
-        $generator = function () {
-            for ($i = 0; $i < 100000; $i++) {
-                yield "Line $i\n";
-            }
-        };
-        File::writeFromGenerator($source, $generator(), ['buffer_size' => 8192])->await();
-
-        $lineGenerator = File::readLines($source)->await();
-        $lineCount = 0;
-
-        foreach ($lineGenerator as $line) {
-            $lineCount++;
-        }
-
-        File::write($dest, "Total lines: $lineCount")->await();
-
-        expect($lineCount)->toBe(100000);
-        expect(file_get_contents($dest))->toBe('Total lines: 100000');
     });
 });

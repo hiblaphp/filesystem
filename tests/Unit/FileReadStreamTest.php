@@ -40,7 +40,7 @@ describe('File::readStream()', function () {
         $path = TestHelper::getTestPath('test.txt');
         file_put_contents($path, 'Hello, World!');
 
-        $result = File::readStream($path, ['offset' => 7])->await();
+        $result = File::readStream($path, null, ['offset' => 7])->await();
 
         expect($result)->toBe('World!');
     });
@@ -50,4 +50,20 @@ describe('File::readStream()', function () {
 
         File::readStream($path)->await();
     })->throws(FileNotFoundException::class);
+
+    it('processes chunks with callback', function () {
+        $path = TestHelper::getTestPath('test.txt');
+        $content = 'Chunk 1 Chunk 2 Chunk 3';
+        file_put_contents($path, $content);
+
+        $chunks = [];
+        $onChunk = function (string $chunk) use (&$chunks): void {
+            $chunks[] = $chunk;
+        };
+
+        File::readStream($path, $onChunk, ['chunk_size' => 8])->await();
+
+        expect(count($chunks))->toBeGreaterThan(0);
+        expect(implode('', $chunks))->toBe($content);
+    });
 });

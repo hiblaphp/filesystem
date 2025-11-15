@@ -2,7 +2,6 @@
 
 namespace Hibla\Filesystem;
 
-use Generator;
 use Hibla\Filesystem\Handlers\FileHandler;
 use Hibla\Promise\Interfaces\CancellablePromiseInterface;
 use Hibla\Promise\Interfaces\PromiseInterface;
@@ -71,69 +70,23 @@ final class File
      *
      * CANCELLABLE: Can be cancelled mid-operation.
      * Use when: User control, timeouts, or conditional reading needed.
-     * Still loads full file into memory but can be stopped early.
+     * Processes chunks via callback or returns total bytes read.
      *
      * @param string $path Path to the file to read
-     * @param array<string,mixed> $options Optional configuration:
-     *                                      - 'offset' => int: Starting position
-     *                                      - 'length' => int|null: Max bytes to read
-     * @return CancellablePromiseInterface<string> Promise resolving to file contents (cancellable)
-     *
-     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the file does not exist
-     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to read
-     * @throws \Hibla\Filesystem\Exceptions\FileReadException If the read operation fails
-     */
-    public static function readStream(string $path, array $options = []): CancellablePromiseInterface
-    {
-        return self::getAsyncFileOperations()->readFileStream($path, $options);
-    }
-
-    /**
-     * Read a file as a generator for memory-efficient streaming.
-     *
-     * CANCELLABLE: Can be cancelled mid-operation.
-     * MEMORY EFFICIENT: Only one chunk in memory at a time.
-     *
-     * Ideal for processing large files without loading entirely into memory.
-     *
-     * @param string $path Path to the file
+     * @param callable|null $onChunk Optional callback to process each chunk: fn(string $chunk): void
      * @param array<string,mixed> $options Optional configuration:
      *                                      - 'chunk_size' => int: Bytes per chunk (default: 8192)
-     *                                      - 'offset' => int: Starting position (default: 0)
-     *                                      - 'length' => int|null: Total bytes to read (default: null = all)
-     * @return CancellablePromiseInterface<Generator<string>> Promise resolving to generator yielding chunks
+     *                                      - 'offset' => int: Starting position
+     *                                      - 'length' => int|null: Max bytes to read
+     * @return CancellablePromiseInterface<int|string> Promise resolving to bytes read or content (cancellable)
      *
      * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the file does not exist
      * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to read
      * @throws \Hibla\Filesystem\Exceptions\FileReadException If the read operation fails
      */
-    public static function readFromGenerator(string $path, array $options = []): CancellablePromiseInterface
+    public static function readStream(string $path, ?callable $onChunk = null, array $options = []): CancellablePromiseInterface
     {
-        return self::getAsyncFileOperations()->readFileFromGenerator($path, $options);
-    }
-
-    /**
-     * Read a file line-by-line as a generator.
-     *
-     * CANCELLABLE: Can be cancelled mid-operation.
-     * MEMORY EFFICIENT: Only current line in memory.
-     *
-     * Perfect for processing large text files, logs, or CSV files.
-     *
-     * @param string $path Path to the file
-     * @param array<string,mixed> $options Optional configuration:
-     *                                      - 'chunk_size' => int: Internal buffer size (default: 8192)
-     *                                      - 'trim' => bool: Trim whitespace from lines (default: false)
-     *                                      - 'skip_empty' => bool: Skip empty lines (default: false)
-     * @return CancellablePromiseInterface<Generator<string>> Promise resolving to generator yielding lines
-     *
-     * @throws \Hibla\Filesystem\Exceptions\FileNotFoundException If the file does not exist
-     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to read
-     * @throws \Hibla\Filesystem\Exceptions\FileReadException If the read operation fails
-     */
-    public static function readLines(string $path, array $options = []): CancellablePromiseInterface
-    {
-        return self::getAsyncFileOperations()->readFileLines($path, $options);
+        return self::getAsyncFileOperations()->readFileStream($path, $onChunk, $options);
     }
 
     /**
@@ -158,13 +111,13 @@ final class File
     }
 
     /**
-     * Asynchronously write data using streaming (cancellable).
+     * Asynchronously write data using streaming with chunk generation callback.
      *
      * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
-     * Use when: User control, timeouts, or conditional writing needed.
+     * Memory-efficient: Generates chunks on-demand via callback instead of holding all data in memory.
      *
      * @param string $path Path where the file should be written
-     * @param string $data Data to write to the file
+     * @param string|callable $content Callback that yields chunks: fn(): ?string (return null when done)
      * @param array<string,mixed> $options Optional configuration:
      *                                      - 'create_directories' => bool: Create parent dirs
      *                                      - 'flags' => int: File operation flags
@@ -173,36 +126,9 @@ final class File
      * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to write
      * @throws \Hibla\Filesystem\Exceptions\FileWriteException If the write operation fails
      */
-    public static function writeStream(string $path, string $data, array $options = []): CancellablePromiseInterface
+    public static function writeStream(string $path, string|callable $content, array $options = []): CancellablePromiseInterface
     {
-        return self::getAsyncFileOperations()->writeFileStream($path, $data, $options);
-    }
-
-    /**
-     * Write data from a generator for memory-efficient streaming.
-     *
-     * CANCELLABLE: Can be cancelled mid-operation, partial file will be deleted.
-     * MEMORY EFFICIENT: Only one chunk in memory at a time.
-     *
-     * Perfect for large datasets, transformations, or generating data on-the-fly.
-     *
-     * PERFORMANCE TIP: Enable auto-buffering for dramatic speedup with small chunks:
-     * File::writeFromGenerator($path, $generator, ['buffer_size' => 8192]);
-     *
-     * @param string $path Path where the file should be written
-     * @param Generator<string> $dataGenerator Generator yielding string chunks
-     * @param array<string,mixed> $options Optional configuration:
-     *                                      - 'buffer_size' => int: Auto-buffer size (0=disabled, recommended: 8192)
-     *                                      - 'create_directories' => bool: Create parent dirs
-     *                                      - 'flags' => int: File operation flags
-     * @return CancellablePromiseInterface<int> Promise resolving to bytes written (cancellable)
-     *
-     * @throws \Hibla\Filesystem\Exceptions\FilePermissionException If insufficient permissions to write
-     * @throws \Hibla\Filesystem\Exceptions\FileWriteException If the write operation fails
-     */
-    public static function writeFromGenerator(string $path, Generator $dataGenerator, array $options = []): CancellablePromiseInterface
-    {
-        return self::getAsyncFileOperations()->writeFileFromGenerator($path, $dataGenerator, $options);
+        return self::getAsyncFileOperations()->writeFileStream($path, $content, $options);
     }
 
     /**
